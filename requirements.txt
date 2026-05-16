@@ -4,5 +4,4 @@ python-telegram-bot
 python-dotenv
 sqlalchemy
 jinja2
-python-multipart
-httpx
+python-multiparthttpx

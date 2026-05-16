@@ -1,7 +1,5 @@
 import os
 import traceback
-import asyncio
-import httpx
 
 print("🔄 [1] Starting imports...")
 
@@ -71,6 +69,8 @@ telegram_app.add_handler(CallbackQueryHandler(product_buttons))
 
 # 5. Reply keyboard buttons — strict matching + cooldown to prevent spam
 import time
+import asyncio
+import httpx
 
 _last_reply: dict = {}  # user_id → timestamp
 
@@ -154,19 +154,16 @@ async def startup():
         except Exception as e:
             print(f"❌ [startup] Webhook error: {e}")
 
-        # ── Keep-alive: ping every 10 min to prevent Render spin-down ──
         async def keep_alive():
             async with httpx.AsyncClient() as client:
                 while True:
-                    await asyncio.sleep(600)  # 10 minutes
+                    await asyncio.sleep(600)
                     try:
-                        r = await client.get(f"{RENDER_URL}/", timeout=10)
-                        print(f"🏓 Keep-alive ping → {r.status_code}")
+                        await client.get(f"{RENDER_URL}/", timeout=10)
+                        print("🏓 keep-alive ping OK")
                     except Exception as e:
-                        print(f"⚠️ Keep-alive failed: {e}")
-
+                        print(f"⚠️ keep-alive: {e}")
         asyncio.create_task(keep_alive())
-        print("✅ [startup] Keep-alive task started")
     else:
         print("⚠️ RENDER_URL not set")
 
