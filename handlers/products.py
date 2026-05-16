@@ -8,119 +8,101 @@ from telegram.ext import (
     CommandHandler,
     filters,
 )
-from services.orders import create_order, get_user_orders, update_order, get_order
+from services.orders import create_order, get_user_orders, update_order
 from services.products import get_active_products
 from services.keys import pop_key, count_available_keys
 from services.binance_verify import verify_binance_transaction
 from keyboards.menus import main_menu
 
-# Conversation states
 CHOOSE_PAYMENT, WAIT_TX_ID = range(2)
 
 
-def build_products_keyboard():
+def _t(context, key, **kwargs):
+    from handlers.start import t
+    return t(context, key, **kwargs)
+
+
+def build_products_keyboard(context):
     db_products = get_active_products()
     if not db_products:
-        return None, "❌ No products available right now."
+        return None, _t(context, "no_products")
     keyboard = [
-        [InlineKeyboardButton(
-            f"{p.emoji} {p.name} | ${p.price}",
-            callback_data=f"buy_{p.id}"
-        )]
+        [InlineKeyboardButton(f"{p.emoji} {p.name} | ${p.price}", callback_data=f"buy_{p.id}")]
         for p in db_products
     ]
-    keyboard.append([InlineKeyboardButton("🛟 Support",  callback_data="support")])
-    keyboard.append([InlineKeyboardButton("⬅️ Back",    callback_data="back_main")])
+    keyboard.append([InlineKeyboardButton("🛟 Support", callback_data="support")])
+    keyboard.append([InlineKeyboardButton(_t(context, "back_btn"), callback_data="back_main")])
     return InlineKeyboardMarkup(keyboard), None
 
 
 async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    markup, error = build_products_keyboard()
-    await update.message.reply_text(
-        error if error else "🛒 Choose a product:",
-        reply_markup=markup
-    )
+    markup, error = build_products_keyboard(context)
+    msg = update.message or (update.callback_query and update.callback_query.message)
+    await msg.reply_text(error if error else _t(context, "choose_product"), reply_markup=markup)
 
 
-# ── Step 1: product selected → show Binance Pay details ──────────────────
+# ── Step 1 ────────────────────────────────────────────────────────────────
 async def on_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    product_id = int(query.data.replace("buy_", ""))
+    product_id  = int(query.data.replace("buy_", ""))
     db_products = get_active_products()
-    product = next((p for p in db_products if p.id == product_id), None)
+    product     = next((p for p in db_products if p.id == product_id), None)
 
     if not product:
-        await query.message.reply_text("❌ Product not found.")
+        await query.message.reply_text(_t(context, "product_not_found"))
         return ConversationHandler.END
 
-    available = count_available_keys(product_id)
-    if available == 0:
+    if count_available_keys(product_id) == 0:
         await query.message.reply_text(
-            f"⚠️ *{product.name}* is currently out of stock.\n"
-            "Please try again later or contact support.",
+            _t(context, "out_of_stock", name=product.name),
             parse_mode="Markdown"
         )
         return ConversationHandler.END
 
     context.user_data["pending_product"] = {
-        "id":    product.id,
-        "name":  product.name,
-        "price": product.price,
-        "emoji": product.emoji,
+        "id": product.id, "name": product.name,
+        "price": product.price, "emoji": product.emoji,
     }
 
     binance_id = os.getenv("BINANCE_PAY_ID", "NOT SET")
 
     await query.message.edit_text(
-        f"{product.emoji} *{product.name}*\n"
-        f"💵 Price: *${product.price} USDT*\n\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "💳 *Pay via Binance Pay*\n\n"
-        f"🆔 Binance Pay ID:\n`{binance_id}`\n\n"
-        f"📌 Send exactly *${product.price} USDT*\n\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        "👇 After payment, paste your *Binance Transaction ID* here:",
+        _t(context, "pay_instructions",
+           emoji=product.emoji, name=product.name,
+           price=product.price, binance_id=binance_id),
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel")
+            InlineKeyboardButton(_t(context, "cancel_btn"), callback_data="pay_cancel")
         ]])
     )
     return WAIT_TX_ID
 
 
-# ── Step 2: user pastes TX ID → verify with Binance API ──────────────────
+# ── Step 2 ────────────────────────────────────────────────────────────────
 async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tx_id   = update.message.text.strip()
     user    = update.effective_user
     product = context.user_data.get("pending_product")
 
     if not product:
-        await update.message.reply_text("❌ Session expired. Please start again with /buy")
+        await update.message.reply_text(_t(context, "session_expired"))
         return ConversationHandler.END
 
     order = create_order(
-        telegram_id    = str(user.id),
-        product_id     = product["id"],
-        product_name   = product["name"],
-        price          = product["price"],
-        payment_method = "binance",
-        tx_id          = tx_id,
+        telegram_id=str(user.id), product_id=product["id"],
+        product_name=product["name"], price=product["price"],
+        payment_method="binance", tx_id=tx_id,
     )
 
-    wait_msg = await update.message.reply_text(
-        "⏳ Verifying your payment with Binance...\nPlease wait.",
-    )
-
-    result = await verify_binance_transaction(tx_id, product["price"])
+    wait_msg = await update.message.reply_text(_t(context, "verifying"))
+    result   = await verify_binance_transaction(tx_id, product["price"])
 
     if not result["success"]:
         update_order(order.id, status="rejected")
         await wait_msg.edit_text(
-            f"❌ *Payment verification failed*\n\n"
-            f"Reason: {result['error']}\n\n"
-            "Please check your Transaction ID and try again, or contact support: @sookbit",
+            _t(context, "verify_failed", reason=result["error"]),
             parse_mode="Markdown"
         )
         context.user_data.clear()
@@ -130,30 +112,18 @@ async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not key:
         update_order(order.id, status="approved")
-        await wait_msg.edit_text(
-            "✅ *Payment verified!*\n\n"
-            "⚠️ We're processing your order manually. "
-            "Your key will be sent shortly. Contact: @sookbit",
-            parse_mode="Markdown"
-        )
+        await wait_msg.edit_text(_t(context, "no_key"), parse_mode="Markdown")
         await _notify_admin(update, order, product, tx_id, key=None)
         context.user_data.clear()
         return ConversationHandler.END
 
     update_order(order.id, status="approved", delivered_key=key)
-
     await wait_msg.edit_text(
-        f"🎉 *Payment Verified & Order Confirmed!*\n\n"
-        f"📦 {product['emoji']} *{product['name']}*\n"
-        f"💵 ${product['price']} USDT\n\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        f"🔑 *Your Key/Code:*\n`{key}`\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "Thank you for your purchase! 🙏\n"
-        "For support: @sookbit",
+        _t(context, "order_confirmed",
+           emoji=product["emoji"], name=product["name"],
+           price=product["price"], key=key),
         parse_mode="Markdown"
     )
-
     await _notify_admin(update, order, product, tx_id, key=key)
     context.user_data.clear()
     return ConversationHandler.END
@@ -163,17 +133,17 @@ async def _notify_admin(update, order, product, tx_id, key):
     admin_id = os.getenv("ADMIN_ID")
     if not admin_id:
         return
-    key_line = f"🔑 Key delivered: `{key}`" if key else "⚠️ No key available — send manually!"
+    key_line = f"🔑 Key delivered: `{key}`" if key else "⚠️ No key — send manually!"
     try:
         await update.get_bot().send_message(
             chat_id=admin_id,
             text=(
-                f"{'✅' if key else '⚠️'} *Order #{order.id} {'Auto-Approved' if key else 'NEEDS KEY'}*\n\n"
+                f"{'✅' if key else '⚠️'} *Order #{order.id} "
+                f"{'Auto-Approved' if key else 'NEEDS KEY'}*\n\n"
                 f"👤 @{update.effective_user.username or update.effective_user.first_name} "
                 f"(`{update.effective_user.id}`)\n"
                 f"📦 {product['emoji']} {product['name']} — ${product['price']}\n"
-                f"🔖 TX ID: `{tx_id}`\n"
-                f"{key_line}"
+                f"🔖 TX ID: `{tx_id}`\n{key_line}"
             ),
             parse_mode="Markdown"
         )
@@ -184,20 +154,19 @@ async def _notify_admin(update, order, product, tx_id, key):
 async def on_pay_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.message.edit_text("❌ Order cancelled.", reply_markup=None)
+    await query.message.edit_text(_t(context, "order_cancelled"), reply_markup=None)
     context.user_data.clear()
     return ConversationHandler.END
 
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Allow /start or /cancel to exit the conversation at any time."""
     context.user_data.clear()
     from handlers.start import start as start_handler
     await start_handler(update, context)
     return ConversationHandler.END
 
 
-# ── Menu navigation callbacks ─────────────────────────────────────────────
+# ── Menu callbacks ────────────────────────────────────────────────────────
 async def product_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -206,15 +175,15 @@ async def product_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "back_main":
         await query.message.edit_text(
-            f"🛒 Welcome back, {user.first_name}!\n\nChoose an option below 👇",
+            _t(context, "welcome_back", name=user.first_name),
             reply_markup=main_menu()
         )
         return
 
     if data == "menu_products":
-        markup, error = build_products_keyboard()
+        markup, error = build_products_keyboard(context)
         await query.message.edit_text(
-            error if error else "🛒 Choose a product:",
+            error if error else _t(context, "choose_product"),
             reply_markup=markup
         )
         return
@@ -222,32 +191,32 @@ async def product_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_orders":
         orders = get_user_orders(str(user.id))
         if not orders:
-            text = "📦 You have no orders yet."
+            text = _t(context, "no_orders")
         else:
             lines = []
             for o in orders:
-                status_icon = "✅" if o.status == "approved" else "❌" if o.status == "rejected" else "⏳"
-                lines.append(f"{status_icon} #{o.id} — {o.product_name} — ${o.price}")
-            text = "📦 *Your orders:*\n\n" + "\n".join(lines)
+                icon = "✅" if o.status == "approved" else "❌" if o.status == "rejected" else "⏳"
+                lines.append(f"{icon} #{o.id} — {o.product_name} — ${o.price}")
+            text = _t(context, "orders_title") + "\n".join(lines)
         await query.message.edit_text(
             text, parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("⬅️ Back", callback_data="back_main")
+                InlineKeyboardButton(_t(context, "back_btn"), callback_data="back_main")
             ]])
         )
         return
 
     if data in ("menu_support", "support"):
         await query.message.edit_text(
-            "🛟 Need help? Contact: @sookbit",
+            _t(context, "support_msg"),
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("⬅️ Back", callback_data="back_main")
+                InlineKeyboardButton(_t(context, "back_btn"), callback_data="back_main")
             ]])
         )
         return
 
 
-# ── ConversationHandler export ────────────────────────────────────────────
+# ── ConversationHandler ───────────────────────────────────────────────────
 payment_conv_handler = ConversationHandler(
     entry_points=[CallbackQueryHandler(on_buy_product, pattern=r"^buy_\d+$")],
     states={

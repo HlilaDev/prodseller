@@ -1,7 +1,7 @@
 import os
 
-from fastapi import FastAPI, Request
-from telegram import Update
+from fastapi import FastAPI, Request, Response
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -12,12 +12,10 @@ from telegram.ext import (
 from dotenv import load_dotenv
 
 from database import Base, engine
-
 from handlers.start import start, language_callback
 from handlers.products import products, product_buttons, payment_conv_handler
 from handlers.orders import my_orders
 from handlers.admin import admin_orders, approve_order, reject_order
-
 from admin.routes import router as admin_router
 
 load_dotenv()
@@ -30,8 +28,6 @@ app.include_router(admin_router)
 
 telegram_app = Application.builder().token(TOKEN).build()
 
-# ── Handlers ──────────────────────────────────────────────────────────────
-
 # 1. ConversationHandler FIRST
 telegram_app.add_handler(payment_conv_handler)
 
@@ -39,7 +35,6 @@ telegram_app.add_handler(payment_conv_handler)
 telegram_app.add_handler(CommandHandler("start",       start))
 telegram_app.add_handler(CommandHandler("produits",    products))
 telegram_app.add_handler(CommandHandler("buy",         products))
-telegram_app.add_handler(CommandHandler("acheter",     products))
 telegram_app.add_handler(CommandHandler("orders",      my_orders))
 telegram_app.add_handler(CommandHandler("adminorders", admin_orders))
 telegram_app.add_handler(CommandHandler("approve",     approve_order))
@@ -51,34 +46,33 @@ telegram_app.add_handler(CallbackQueryHandler(language_callback, pattern=r"^(men
 # 4. General inline callbacks
 telegram_app.add_handler(CallbackQueryHandler(product_buttons))
 
-# 5. Persistent Reply Keyboard — text button handler
+# 5. Persistent Reply Keyboard buttons
 async def handle_reply_buttons(update: Update, context):
     text = update.message.text
-    if text in ("🛍️ Shop",):
+    if "Shop" in text or "متجر" in text or "Tienda" in text:
         await products(update, context)
-    elif text in ("📦 My Orders",):
+    elif "Orders" in text or "طلبات" in text or "Pedidos" in text:
         await my_orders(update, context)
-    elif text in ("🛟 Support",):
-        await update.message.reply_text("🛟 Need help? Contact: @sookbit")
-    elif text in ("🌐 Language",):
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    elif "Support" in text or "دعم" in text or "Soporte" in text:
+        from handlers.start import t
+        await update.message.reply_text(t(context, "support_msg"))
+    elif "Language" in text or "لغة" in text or "Idioma" in text:
         keyboard = [
-            [InlineKeyboardButton("🇬🇧 English",  callback_data="setlang_en")],
-            [InlineKeyboardButton("🇫🇷 Français", callback_data="setlang_fr")],
-            [InlineKeyboardButton("🇸🇦 العربية",  callback_data="setlang_ar")],
+            [InlineKeyboardButton("🇬🇧 English", callback_data="setlang_en")],
+            [InlineKeyboardButton("🇸🇦 العربية", callback_data="setlang_ar")],
+            [InlineKeyboardButton("🇪🇸 Español", callback_data="setlang_es")],
         ]
+        from handlers.start import t
         await update.message.reply_text(
-            "🌐 Choose your language:",
+            t(context, "choose_lang"),
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
 telegram_app.add_handler(MessageHandler(
-    filters.TEXT & ~filters.COMMAND & filters.Regex(r"^(🛍️ Shop|📦 My Orders|🛟 Support|🌐 Language)$"),
+    filters.TEXT & ~filters.COMMAND,
     handle_reply_buttons
 ))
 
-
-# ── FastAPI lifecycle ─────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def startup():
@@ -118,6 +112,6 @@ async def webhook_get():
     return {"ok": True, "status": "webhook active"}
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def home():
     return {"status": "running", "admin": "/admin"}
