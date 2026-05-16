@@ -1,5 +1,7 @@
 import os
 import traceback
+import asyncio
+import httpx
 
 print("🔄 [1] Starting imports...")
 
@@ -151,6 +153,20 @@ async def startup():
             print(f"✅ [startup] Webhook set → {webhook_url}")
         except Exception as e:
             print(f"❌ [startup] Webhook error: {e}")
+
+        # ── Keep-alive: ping every 10 min to prevent Render spin-down ──
+        async def keep_alive():
+            async with httpx.AsyncClient() as client:
+                while True:
+                    await asyncio.sleep(600)  # 10 minutes
+                    try:
+                        r = await client.get(f"{RENDER_URL}/", timeout=10)
+                        print(f"🏓 Keep-alive ping → {r.status_code}")
+                    except Exception as e:
+                        print(f"⚠️ Keep-alive failed: {e}")
+
+        asyncio.create_task(keep_alive())
+        print("✅ [startup] Keep-alive task started")
     else:
         print("⚠️ RENDER_URL not set")
 
