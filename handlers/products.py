@@ -32,13 +32,18 @@ def build_products_keyboard(context, user_id=None):
 
 
 async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user   = update.effective_user
-    markup, error = build_products_keyboard(context, str(user.id))
-    msg = update.message or update.callback_query.message
-    await msg.reply_text(
-        error if error else _t(context, "choose_product", user_id=str(user.id)),
-        reply_markup=markup
-    )
+    user    = update.effective_user
+    user_id = str(user.id)
+    markup, error = build_products_keyboard(context, user_id)
+    text = error if error else _t(context, "choose_product", user_id=user_id)
+    if update.callback_query:
+        await update.callback_query.answer()
+        try:
+            await update.callback_query.message.edit_text(text, reply_markup=markup)
+        except Exception:
+            await update.callback_query.message.reply_text(text, reply_markup=markup)
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=markup)
 
 
 async def on_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -171,19 +176,23 @@ async def product_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(user.id)
     data    = query.data
 
+    async def safe_edit(msg, text, markup=None, parse_mode=None):
+        try:
+            await msg.edit_text(text, reply_markup=markup, parse_mode=parse_mode)
+        except Exception:
+            await msg.reply_text(text, reply_markup=markup, parse_mode=parse_mode)
+
     if data == "back_main":
-        await query.message.edit_text(
+        await safe_edit(query.message,
             _t(context, "welcome_back", user_id=user_id, name=user.first_name),
-            reply_markup=main_menu()
-        )
+            markup=main_menu())
         return
 
     if data == "menu_products":
         markup, error = build_products_keyboard(context, user_id)
-        await query.message.edit_text(
+        await safe_edit(query.message,
             error if error else _t(context, "choose_product", user_id=user_id),
-            reply_markup=markup
-        )
+            markup=markup)
         return
 
     if data == "menu_orders":
@@ -196,21 +205,13 @@ async def product_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 icon = "✅" if o.status == "approved" else "❌" if o.status == "rejected" else "⏳"
                 lines.append(f"{icon} #{o.id} — {o.product_name} — ${o.price}")
             text = _t(context, "orders_title", user_id=user_id) + "\n".join(lines)
-        await query.message.edit_text(
-            text, parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(_t(context, "back_btn", user_id=user_id), callback_data="back_main")
-            ]])
-        )
+        back = InlineKeyboardMarkup([[InlineKeyboardButton(_t(context, "back_btn", user_id=user_id), callback_data="back_main")]])
+        await safe_edit(query.message, text, markup=back, parse_mode="Markdown")
         return
 
     if data in ("menu_support", "support"):
-        await query.message.edit_text(
-            _t(context, "support_msg", user_id=user_id),
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(_t(context, "back_btn", user_id=user_id), callback_data="back_main")
-            ]])
-        )
+        back = InlineKeyboardMarkup([[InlineKeyboardButton(_t(context, "back_btn", user_id=user_id), callback_data="back_main")]])
+        await safe_edit(query.message, _t(context, "support_msg", user_id=user_id), markup=back)
         return
 
 
