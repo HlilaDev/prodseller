@@ -87,7 +87,7 @@ async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
       2. Verify the TX via Binance Pay API.
       3. If verified → pop a key from product_keys → deliver automatically.
       4. If no key available → notify admin to deliver manually.
-      5. If verification fails → mark order rejected + inform user.
+      5. If verification fails → mark order rejected + ask to retry (stay in WAIT_TX_ID).
     """
     tx_id   = update.message.text.strip()
     user    = update.effective_user
@@ -115,12 +115,19 @@ async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not result["success"]:
         update_order(order.id, status="rejected")
+        # ⚠️ DO NOT clear user_data or return END here.
+        # Stay in WAIT_TX_ID so the client can retry with the correct TX ID.
         await wait_msg.edit_text(
-            _t(context, "verify_failed", user_id=user_id, reason=result["error"]),
-            parse_mode="Markdown"
+            f"❌ *Verification failed*\n"
+            f"Reason: {result['error']}\n\n"
+            f"👆 Please send the correct Binance Transaction ID to try again, "
+            f"or press ❌ Cancel below.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel")
+            ]])
         )
-        context.user_data.clear()
-        return ConversationHandler.END
+        return WAIT_TX_ID  # ← key fix: stay in conversation, allow retry
 
     # ── 3. Payment verified → pop a key from the DB ───────────────────────
     key = pop_key(product["id"])
