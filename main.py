@@ -67,30 +67,41 @@ telegram_app.add_handler(CallbackQueryHandler(
 # 4. General inline callbacks (menu navigation)
 telegram_app.add_handler(CallbackQueryHandler(product_buttons))
 
-# 5. Reply keyboard text buttons — runs ONLY when NOT in a conversation
-# This handler has lower priority than the ConversationHandler above
-REPLY_BUTTONS = ["🛍️ Shop", "📦 My Orders", "🛟 Support", "🌐 Language"]
+# 5. Reply keyboard buttons — strict matching + cooldown to prevent spam
+import time
+
+_last_reply: dict = {}  # user_id → timestamp
+
+KNOWN_BUTTONS = [
+    "🛍️ Shop", "📦 My Orders", "🛟 Support", "🌐 Language",
+]
 
 async def handle_reply_buttons(update: Update, context):
-    # Safety check: if user is in conversation, ignore reply buttons
-    if context.user_data.get("pending_product"):
+    if not update.message or not update.message.text:
         return
 
-    text    = update.message.text or ""
+    text    = update.message.text.strip()
     user_id = str(update.effective_user.id)
+
+    # Only handle known reply keyboard buttons — ignore everything else
+    if text not in KNOWN_BUTTONS:
+        return
+
+    # Cooldown: ignore if same user clicked within 2 seconds
+    now = time.time()
+    if now - _last_reply.get(user_id, 0) < 2:
+        return
+    _last_reply[user_id] = now
 
     from handlers.start import t
 
-    if any(x in text for x in ["Shop", "Tienda", "متجر"]):
+    if "Shop" in text:
         await products(update, context)
-
-    elif any(x in text for x in ["Orders", "Pedidos", "طلبات"]):
+    elif "Orders" in text:
         await my_orders(update, context)
-
-    elif any(x in text for x in ["Support", "Soporte", "دعم"]):
+    elif "Support" in text:
         await update.message.reply_text(t(context, "support_msg", user_id=user_id))
-
-    elif any(x in text for x in ["Language", "Idioma", "لغة"]):
+    elif "Language" in text:
         keyboard = [
             [InlineKeyboardButton("🇬🇧 English", callback_data="setlang_en")],
             [InlineKeyboardButton("🇸🇦 العربية", callback_data="setlang_ar")],
