@@ -33,12 +33,18 @@ def build_products_keyboard(context, user_id=None):
 
 async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
-    markup, error = build_products_keyboard(context, str(user.id))
-    msg = update.message or update.callback_query.message
-    await msg.reply_text(
-        error if error else _t(context, "choose_product", user_id=str(user.id)),
-        reply_markup=markup
-    )
+    user_id = str(user.id)
+    markup, error = build_products_keyboard(context, user_id)
+    text = error if error else _t(context, "choose_product", user_id=user_id)
+
+    if update.callback_query:
+        await update.callback_query.answer()
+        try:
+            await update.callback_query.message.edit_text(text, reply_markup=markup)
+        except Exception:
+            await update.callback_query.message.reply_text(text, reply_markup=markup)
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=markup)
 
 
 async def on_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -226,6 +232,8 @@ payment_conv_handler = ConversationHandler(
         CommandHandler("start",  cancel_conversation),
         CommandHandler("cancel", cancel_conversation),
         CallbackQueryHandler(on_pay_cancel, pattern="^pay_cancel$"),
+        CallbackQueryHandler(cancel_conversation, pattern=r"^(back_main|menu_products|menu_orders|menu_support|menu_language|setlang_.+)$"),
     ],
     per_user=True, per_chat=True, per_message=False, block=False,
+    allow_reentry=True,
 )
