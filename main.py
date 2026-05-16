@@ -74,6 +74,8 @@ _last_reply: dict = {}  # user_id → timestamp
 
 KNOWN_BUTTONS = [
     "🛍️ Shop", "📦 My Orders", "🛟 Support", "🌐 Language",
+    # Also handle any emoji rendering variants
+    "Shop", "My Orders", "Support", "Language",
 ]
 
 async def handle_reply_buttons(update: Update, context):
@@ -83,8 +85,16 @@ async def handle_reply_buttons(update: Update, context):
     text    = update.message.text.strip()
     user_id = str(update.effective_user.id)
 
-    # Only handle known reply keyboard buttons — ignore everything else
-    if text not in KNOWN_BUTTONS:
+    # Handle reply keyboard buttons — match by keyword (emoji-safe)
+    text_lower = text.lower()
+    matched = (
+        "shop" in text_lower or
+        "order" in text_lower or
+        "support" in text_lower or
+        "language" in text_lower or
+        "lang" in text_lower
+    )
+    if not matched:
         return
 
     # Cooldown: ignore if same user clicked within 2 seconds
@@ -95,13 +105,14 @@ async def handle_reply_buttons(update: Update, context):
 
     from handlers.start import t
 
-    if "Shop" in text:
+    text_lower = text.lower()
+    if "shop" in text_lower:
         await products(update, context)
-    elif "Orders" in text:
+    elif "order" in text_lower:
         await my_orders(update, context)
-    elif "Support" in text:
+    elif "support" in text_lower:
         await update.message.reply_text(t(context, "support_msg", user_id=user_id))
-    elif "Language" in text:
+    elif "language" in text_lower or "lang" in text_lower:
         keyboard = [
             [InlineKeyboardButton("🇬🇧 English", callback_data="setlang_en")],
             [InlineKeyboardButton("🇸🇦 العربية", callback_data="setlang_ar")],

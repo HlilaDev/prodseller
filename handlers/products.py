@@ -256,6 +256,15 @@ payment_conv_handler = ConversationHandler(
         CommandHandler("start",  cancel_conversation),
         CommandHandler("cancel", cancel_conversation),
         CallbackQueryHandler(on_pay_cancel, pattern="^pay_cancel$"),
+        # Menu buttons clicked during a purchase → cancel and go to menu
+        CallbackQueryHandler(
+            cancel_conversation,
+            pattern=r"^(menu_products|menu_orders|menu_support|menu_language|back_main)$"
+        ),
     ],
-    per_user=True, per_chat=True, per_message=False, block=False,
+    per_user=True,
+    per_chat=True,
+    per_message=False,
+    block=False,
+    allow_reentry=True,
 )
