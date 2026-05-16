@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Orders</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container-fluid mt-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>🧾 Orders</h1>
+        <a href="/admin" class="btn btn-outline-secondary">⬅️ Dashboard</a>
+    </div>
+
+    <table class="table table-bordered table-sm align-middle">
+        <thead class="table-dark">
+            <tr>
+                <th>ID</th>
+                <th>User</th>
+                <th>Product</th>
+                <th>Price</th>
+                <th>TX ID</th>
+                <th>Key Delivered</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for order in orders %}
+            <tr>
+                <td>#{{ order.id }}</td>
+                <td><code>{{ order.telegram_id }}</code></td>
+                <td>{{ order.product_name }}</td>
+                <td>${{ order.price }}</td>
+                <td>
+                    {% if order.tx_id %}
+                        <code style="font-size:0.8em">{{ order.tx_id }}</code>
+                    {% else %} — {% endif %}
+                </td>
+                <td>
+                    {% if order.delivered_key %}
+                        <code class="text-success">{{ order.delivered_key }}</code>
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if order.status == "approved" %}
+                        <span class="badge bg-success">Approved</span>
+                    {% elif order.status == "rejected" %}
+                        <span class="badge bg-danger">Rejected</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">Pending</span>
+                    {% endif %}
+                </td>
+                <td style="font-size:0.85em">{{ order.created_at.strftime('%m-%d %H:%M') }}</td>
+                <td>
+                    {% if order.status == "pending" %}
+                        <a href="/admin/orders/approve/{{ order.id }}"
+                           class="btn btn-success btn-sm"
+                           onclick="return confirm('Approve #{{ order.id }}?')">✅</a>
+                        <a href="/admin/orders/reject/{{ order.id }}"
+                           class="btn btn-danger btn-sm"
+                           onclick="return confirm('Reject #{{ order.id }}?')">❌</a>
+                    {% else %} — {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+</body>
+</html>
