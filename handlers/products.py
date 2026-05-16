@@ -4,7 +4,7 @@ from telegram.ext import (
     ContextTypes, ConversationHandler,
     CallbackQueryHandler, MessageHandler, CommandHandler, filters,
 )
-from services.orders import create_order, get_user_orders, update_order
+from services.orders import create_order, get_user_orders, update_order, deliver_key_for_order
 from services.products import get_active_products
 from services.keys import pop_key, count_available_keys
 from services.binance_verify import verify_binance_transaction
@@ -80,6 +80,15 @@ async def on_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Called when the client sends a Binance transaction ID.
+    Flow:
+      1. Create a pending order in the DB.
+      2. Verify the TX via Binance Pay API.
+      3. If verified → pop a key from product_keys → deliver automatically.
+      4. If no key available → notify admin to deliver manually.
+      5. If verification fails → mark order rejected + inform user.
+    """
     tx_id   = update.message.text.strip()
     user    = update.effective_user
     user_id = str(user.id)
@@ -89,44 +98,54 @@ async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(_t(context, "session_expired", user_id=user_id))
         return ConversationHandler.END
 
-    order    = create_order(
-        telegram_id=user_id, product_id=product["id"],
-        product_name=product["name"], price=product["price"],
-        payment_method="binance", tx_id=tx_id,
+    # ── 1. Create order (pending) ─────────────────────────────────────────
+    order = create_order(
+        telegram_id    = user_id,
+        product_id     = product["id"],
+        product_name   = product["name"],
+        price          = product["price"],
+        payment_method = "binance",
+        tx_id          = tx_id,
     )
+
     wait_msg = await update.message.reply_text(_t(context, "verifying", user_id=user_id))
-    result   = await verify_binance_transaction(tx_id, product["price"])
+
+    # ── 2. Verify payment with Binance ────────────────────────────────────
+    result = await verify_binance_transaction(tx_id, product["price"])
 
     if not result["success"]:
         update_order(order.id, status="rejected")
-        # ✅ FIX #2: On reste dans WAIT_TX_ID → l'utilisateur peut renvoyer le bon TX ID
         await wait_msg.edit_text(
             _t(context, "verify_failed", user_id=user_id, reason=result["error"]),
             parse_mode="Markdown"
         )
-        await update.message.reply_text(
-            "🔁 Tu peux renvoyer un autre TX ID, ou /cancel pour annuler.",
-        )
-        # Ne PAS faire context.user_data.clear() ici → on garde pending_product
-        return WAIT_TX_ID  # ← reste dans la conversation
+        context.user_data.clear()
+        return ConversationHandler.END
 
+    # ── 3. Payment verified → pop a key from the DB ───────────────────────
     key = pop_key(product["id"])
 
     if not key:
+        # Payment valid but stock ran out between check and pop (race condition)
         update_order(order.id, status="approved")
         await wait_msg.edit_text(_t(context, "no_key", user_id=user_id), parse_mode="Markdown")
         await _notify_admin(update, order, product, tx_id, key=None)
         context.user_data.clear()
         return ConversationHandler.END
 
-    update_order(order.id, status="approved", delivered_key=key)
+    # ── 4. Key found → mark delivered and send to client ──────────────────
+    deliver_key_for_order(order.id, key)   # status=approved + delivered_key saved
+
     await wait_msg.edit_text(
         _t(context, "order_confirmed", user_id=user_id,
            emoji=product["emoji"], name=product["name"],
            price=product["price"], key=key),
         parse_mode="Markdown"
     )
+
+    # ── 5. Notify admin ───────────────────────────────────────────────────
     await _notify_admin(update, order, product, tx_id, key=key)
+
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -135,7 +154,7 @@ async def _notify_admin(update, order, product, tx_id, key):
     admin_id = os.getenv("ADMIN_ID")
     if not admin_id:
         return
-    key_line = f"🔑 Key: `{key}`" if key else "⚠️ No key — send manually!"
+    key_line = f"🔑 Key: `{key}`" if key else "⚠️ No key in stock — send manually!"
     try:
         await update.get_bot().send_message(
             chat_id=admin_id,

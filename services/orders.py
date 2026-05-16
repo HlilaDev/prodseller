@@ -58,3 +58,20 @@ def get_all_orders():
     orders = db.query(Order).order_by(Order.created_at.desc()).all()
     db.close()
     return orders
+
+
+def deliver_key_for_order(order_id: int, key: str) -> bool:
+    """
+    Attach a delivered_key to an order and mark it approved.
+    Returns True if the order was found and updated.
+    """
+    db = SessionLocal()
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        db.close()
+        return False
+    order.status        = "approved"
+    order.delivered_key = key
+    db.commit()
+    db.close()
+    return True
