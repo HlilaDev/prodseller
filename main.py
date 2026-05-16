@@ -124,6 +124,9 @@ print("✅ [5] All handlers registered")
 
 @app.on_event("startup")
 async def startup():
+    import asyncio
+
+    # ── 1. DB ─────────────────────────────────────────────────────────────
     print("🔄 [startup] Creating DB tables...")
     try:
         Base.metadata.create_all(bind=engine)
@@ -133,6 +136,22 @@ async def startup():
         print(f"❌ [startup] DB error: {e}")
         traceback.print_exc()
 
+    # ── 2. Delete any stale webhook BEFORE initializing ───────────────────
+    # This prevents "conflict" errors when Render redeploys
+    print("🔄 [startup] Clearing old webhook...")
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.get(
+                f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true"
+            )
+        print("✅ [startup] Old webhook cleared")
+    except Exception as e:
+        print(f"⚠️ [startup] Could not clear webhook (non-fatal): {e}")
+
+    await asyncio.sleep(1)  # small pause so Telegram releases the old connection
+
+    # ── 3. Initialize & start bot ─────────────────────────────────────────
     print("🔄 [startup] Starting Telegram app...")
     try:
         await telegram_app.initialize()
@@ -141,24 +160,33 @@ async def startup():
     except Exception as e:
         print(f"❌ [startup] Telegram start error: {e}")
         traceback.print_exc()
+        return  # no point setting webhook if bot didn't start
 
+    # ── 4. Set webhook ────────────────────────────────────────────────────
     if RENDER_URL:
         try:
             webhook_url = f"{RENDER_URL}/webhook"
             await telegram_app.bot.set_webhook(
-                url=webhook_url, drop_pending_updates=True
+                url=webhook_url,
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query"],
             )
             print(f"✅ [startup] Webhook set → {webhook_url}")
         except Exception as e:
             print(f"❌ [startup] Webhook error: {e}")
+            traceback.print_exc()
     else:
-        print("⚠️ RENDER_URL not set")
+        print("⚠️ RENDER_URL not set — webhook NOT configured")
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    print("🔄 [shutdown] Stopping bot...")
     try:
-        await telegram_app.bot.delete_webhook()
+        await telegram_app.bot.delete_webhook(drop_pending_updates=True)
+    except Exception:
+        pass
+    try:
         await telegram_app.stop()
         await telegram_app.shutdown()
     except Exception:
