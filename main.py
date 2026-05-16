@@ -1,7 +1,6 @@
 import os
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -22,14 +21,14 @@ from admin.routes import router as admin_router
 load_dotenv()
 
 TOKEN      = os.getenv("BOT_TOKEN")
-RENDER_URL = os.getenv("RENDER_URL", "").rstrip("/")   # e.g. https://prodseller.onrender.com
+RENDER_URL = os.getenv("RENDER_URL", "").rstrip("/")  # e.g. https://prodseller.onrender.com
 
 app = FastAPI()
 app.include_router(admin_router)
 
 telegram_app = Application.builder().token(TOKEN).build()
 
-# ConversationHandler must be registered BEFORE the general CallbackQueryHandler
+# ConversationHandler must be BEFORE the general CallbackQueryHandler
 telegram_app.add_handler(payment_conv_handler)
 
 telegram_app.add_handler(CommandHandler("start",       start))
@@ -41,7 +40,6 @@ telegram_app.add_handler(CommandHandler("adminorders", admin_orders))
 telegram_app.add_handler(CommandHandler("approve",     approve_order))
 telegram_app.add_handler(CommandHandler("reject",      reject_order))
 
-# General callback handler for menu navigation (non-purchase buttons)
 telegram_app.add_handler(CallbackQueryHandler(product_buttons))
 
 
@@ -75,11 +73,17 @@ async def shutdown():
 
 
 @app.post("/webhook")
-async def webhook(request: Request):
+async def webhook_post(request: Request):
     data   = await request.json()
     update = Update.de_json(data, telegram_app.bot)
     await telegram_app.process_update(update)
     return {"ok": True}
+
+
+@app.get("/webhook")
+async def webhook_get():
+    # Telegram sometimes sends GET to verify the endpoint
+    return {"ok": True, "status": "webhook active"}
 
 
 @app.get("/")
