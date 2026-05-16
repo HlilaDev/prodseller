@@ -227,5 +227,5 @@ payment_conv_handler = ConversationHandler(
         CommandHandler("cancel", cancel_conversation),
         CallbackQueryHandler(on_pay_cancel, pattern="^pay_cancel$"),
     ],
-    per_user=True, per_chat=True, per_message=False,
+    per_user=True, per_chat=True, per_message=False, block=False,
 )
