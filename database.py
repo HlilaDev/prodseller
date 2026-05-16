@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./bot.db"
 
@@ -10,7 +9,10 @@ engine = create_engine(
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 def run_migrations():
@@ -27,4 +29,4 @@ def run_migrations():
                 conn.commit()
                 print(f"✅ Migration: {sql[:50]}")
             except Exception:
-                pass  # column already exists — safe to ignore
+                pass

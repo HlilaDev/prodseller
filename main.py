@@ -150,9 +150,14 @@ async def shutdown():
 
 @app.post("/webhook")
 async def webhook_post(request: Request):
-    data   = await request.json()
-    update = Update.de_json(data, telegram_app.bot)
-    await telegram_app.process_update(update)
+    try:
+        data   = await request.json()
+        update = Update.de_json(data, telegram_app.bot)
+        await telegram_app.process_update(update)
+    except Exception as e:
+        import traceback
+        print(f"❌ Webhook error: {e}")
+        traceback.print_exc()
     return {"ok": True}
 
 
