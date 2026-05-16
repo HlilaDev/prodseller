@@ -99,12 +99,16 @@ async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not result["success"]:
         update_order(order.id, status="rejected")
+        # ✅ FIX #2: On reste dans WAIT_TX_ID → l'utilisateur peut renvoyer le bon TX ID
         await wait_msg.edit_text(
             _t(context, "verify_failed", user_id=user_id, reason=result["error"]),
             parse_mode="Markdown"
         )
-        context.user_data.clear()
-        return ConversationHandler.END
+        await update.message.reply_text(
+            "🔁 Tu peux renvoyer un autre TX ID, ou /cancel pour annuler.",
+        )
+        # Ne PAS faire context.user_data.clear() ici → on garde pending_product
+        return WAIT_TX_ID  # ← reste dans la conversation
 
     key = pop_key(product["id"])
 
