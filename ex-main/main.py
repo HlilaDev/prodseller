@@ -1,7 +1,8 @@
+import asyncio
+import threading
 import os
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -21,8 +22,7 @@ from admin.routes import router as admin_router
 
 load_dotenv()
 
-TOKEN      = os.getenv("BOT_TOKEN")
-RENDER_URL = os.getenv("RENDER_URL", "").rstrip("/")   # e.g. https://prodseller.onrender.com
+TOKEN = os.getenv("BOT_TOKEN")
 
 app = FastAPI()
 app.include_router(admin_router)
@@ -45,30 +45,50 @@ telegram_app.add_handler(CommandHandler("reject",      reject_order))
 telegram_app.add_handler(CallbackQueryHandler(product_buttons))
 
 
+def _is_main_worker() -> bool:
+    return os.environ.get("RUN_MAIN") != "false"
+
+
+_bot_thread: threading.Thread | None = None
+
+
+def _run_polling():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        print("✅ Bot polling started")
+        telegram_app.run_polling(drop_pending_updates=True, close_loop=False)
+    except Exception as e:
+        print(f"⚠️  Polling error: {e}")
+    finally:
+        loop.close()
+
+
 @app.on_event("startup")
 async def startup():
     Base.metadata.create_all(bind=engine)
 
-    await telegram_app.initialize()
-    await telegram_app.start()
+    global _bot_thread
+    if not _is_main_worker():
+        print("⏭️  Reloader parent — skipping bot polling")
+        return
+    if _bot_thread and _bot_thread.is_alive():
+        print("⚠️  Polling thread already running")
+        return
 
-    if RENDER_URL:
-        webhook_url = f"{RENDER_URL}/webhook"
-        await telegram_app.bot.set_webhook(
-            url=webhook_url,
-            drop_pending_updates=True,
-        )
-        print(f"✅ Webhook set → {webhook_url}")
-    else:
-        print("⚠️  RENDER_URL not set — webhook not registered")
+    try:
+        _bot_thread = threading.Thread(target=_run_polling, daemon=True, name="bot-polling")
+        _bot_thread.start()
+    except Exception as e:
+        print(f"⚠️  Bot failed to start: {e}")
 
 
 @app.on_event("shutdown")
 async def shutdown():
     try:
-        await telegram_app.bot.delete_webhook()
-        await telegram_app.stop()
-        await telegram_app.shutdown()
+        if telegram_app.running:
+            await telegram_app.stop()
+            await telegram_app.shutdown()
     except Exception:
         pass
     print("🛑 Bot stopped")
@@ -76,7 +96,7 @@ async def shutdown():
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    data   = await request.json()
+    data = await request.json()
     update = Update.de_json(data, telegram_app.bot)
     await telegram_app.process_update(update)
     return {"ok": True}
