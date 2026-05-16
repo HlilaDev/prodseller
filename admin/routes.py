@@ -47,7 +47,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
 async def products_page(request: Request):
     if not is_logged_in(request):
         return RedirectResponse("/admin/login", status_code=302)
-    products = get_all_products() 
+    products = get_all_products()
     products_with_stock = [
         {"product": p, "keys_available": count_available_keys(p.id)}
         for p in products

@@ -5,6 +5,7 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
     MessageHandler,
+    CommandHandler,
     filters,
 )
 from services.orders import create_order, get_user_orders, update_order, get_order
@@ -54,7 +55,6 @@ async def on_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("❌ Product not found.")
         return ConversationHandler.END
 
-    # Check keys available
     available = count_available_keys(product_id)
     if available == 0:
         await query.message.reply_text(
@@ -100,7 +100,6 @@ async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Session expired. Please start again with /buy")
         return ConversationHandler.END
 
-    # Create order immediately as pending
     order = create_order(
         telegram_id    = str(user.id),
         product_id     = product["id"],
@@ -114,11 +113,9 @@ async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⏳ Verifying your payment with Binance...\nPlease wait.",
     )
 
-    # Call Binance API
     result = await verify_binance_transaction(tx_id, product["price"])
 
     if not result["success"]:
-        # Verification failed
         update_order(order.id, status="rejected")
         await wait_msg.edit_text(
             f"❌ *Payment verification failed*\n\n"
@@ -129,11 +126,9 @@ async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
 
-    # Payment verified — pop a key from stock
     key = pop_key(product["id"])
 
     if not key:
-        # Verified but no keys left (race condition)
         update_order(order.id, status="approved")
         await wait_msg.edit_text(
             "✅ *Payment verified!*\n\n"
@@ -141,12 +136,10 @@ async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Your key will be sent shortly. Contact: @sookbit",
             parse_mode="Markdown"
         )
-        # Notify admin
         await _notify_admin(update, order, product, tx_id, key=None)
         context.user_data.clear()
         return ConversationHandler.END
 
-    # All good — deliver the key
     update_order(order.id, status="approved", delivered_key=key)
 
     await wait_msg.edit_text(
@@ -193,6 +186,14 @@ async def on_pay_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.message.edit_text("❌ Order cancelled.", reply_markup=None)
     context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Allow /start or /cancel to exit the conversation at any time."""
+    context.user_data.clear()
+    from handlers.start import start as start_handler
+    await start_handler(update, context)
     return ConversationHandler.END
 
 
@@ -255,7 +256,12 @@ payment_conv_handler = ConversationHandler(
             CallbackQueryHandler(on_pay_cancel, pattern="^pay_cancel$"),
         ],
     },
-    fallbacks=[CallbackQueryHandler(on_pay_cancel, pattern="^pay_cancel$")],
+    fallbacks=[
+        CommandHandler("start",  cancel_conversation),
+        CommandHandler("cancel", cancel_conversation),
+        CallbackQueryHandler(on_pay_cancel, pattern="^pay_cancel$"),
+    ],
     per_user=True,
     per_chat=True,
+    per_message=False,
 )
