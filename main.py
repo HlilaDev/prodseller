@@ -11,7 +11,7 @@ from telegram.ext import (
 )
 from dotenv import load_dotenv
 
-from database import Base, engine
+from database import Base, engine, run_migrations
 from handlers.start import start, language_callback
 from handlers.products import products, product_buttons, payment_conv_handler
 from handlers.orders import my_orders
@@ -77,6 +77,7 @@ telegram_app.add_handler(MessageHandler(
 @app.on_event("startup")
 async def startup():
     Base.metadata.create_all(bind=engine)
+    run_migrations()
     await telegram_app.initialize()
     await telegram_app.start()
 
