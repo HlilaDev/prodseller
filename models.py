@@ -10,6 +10,7 @@ class Client(Base):
     telegram_id = Column(String, unique=True, index=True)
     username    = Column(String, nullable=True)
     first_name  = Column(String, nullable=True)
+    lang        = Column(String, default="en")          # ← NEW
     created_at  = Column(DateTime, default=datetime.utcnow)
 
 
@@ -21,10 +22,10 @@ class Order(Base):
     product_id     = Column(Integer, nullable=True)
     product_name   = Column(String)
     price          = Column(Float)
-    status         = Column(String, default="pending")   # pending/approved/rejected
-    payment_method = Column(String, nullable=True)       # binance
-    tx_id          = Column(String, nullable=True)       # binance transaction id
-    delivered_key  = Column(String, nullable=True)       # code sent to user
+    status         = Column(String, default="pending")
+    payment_method = Column(String, nullable=True)
+    tx_id          = Column(String, nullable=True)
+    delivered_key  = Column(String, nullable=True)
     created_at     = Column(DateTime, default=datetime.utcnow)
 
 
@@ -41,7 +42,6 @@ class Product(Base):
 
 
 class ProductKey(Base):
-    """One row = one code/key/password for a product."""
     __tablename__ = "product_keys"
 
     id         = Column(Integer, primary_key=True, index=True)
