@@ -69,8 +69,6 @@ telegram_app.add_handler(CallbackQueryHandler(product_buttons))
 
 # 5. Reply keyboard buttons — strict matching + cooldown to prevent spam
 import time
-import asyncio
-import httpx
 
 _last_reply: dict = {}  # user_id → timestamp
 
@@ -153,17 +151,6 @@ async def startup():
             print(f"✅ [startup] Webhook set → {webhook_url}")
         except Exception as e:
             print(f"❌ [startup] Webhook error: {e}")
-
-        async def keep_alive():
-            async with httpx.AsyncClient() as client:
-                while True:
-                    await asyncio.sleep(600)
-                    try:
-                        await client.get(f"{RENDER_URL}/", timeout=10)
-                        print("🏓 keep-alive ping OK")
-                    except Exception as e:
-                        print(f"⚠️ keep-alive: {e}")
-        asyncio.create_task(keep_alive())
     else:
         print("⚠️ RENDER_URL not set")
 

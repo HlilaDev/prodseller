@@ -120,21 +120,10 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = data.replace("setlang_", "")
         set_client_lang(user_id, lang)
         context.user_data["lang"] = lang
-        back_markup = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🏠 Menu", callback_data="back_main")
-        ]])
-        try:
-            await query.message.edit_text(
-                t(context, "language_set", user_id=user_id),
-                parse_mode="Markdown",
-                reply_markup=back_markup
-            )
-        except Exception:
-            await query.message.reply_text(
-                t(context, "language_set", user_id=user_id),
-                parse_mode="Markdown",
-                reply_markup=back_markup
-            )
+        await query.message.edit_text(
+            t(context, "language_set", user_id=user_id),
+            parse_mode="Markdown"
+        )
         return
 
     keyboard = [
@@ -143,14 +132,7 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🇪🇸 Español", callback_data="setlang_es")],
         [InlineKeyboardButton("⬅️ Back",     callback_data="back_main")],
     ]
-    markup = InlineKeyboardMarkup(keyboard)
-    try:
-        await query.message.edit_text(
-            t(context, "choose_lang", user_id=user_id),
-            reply_markup=markup
-        )
-    except Exception:
-        await query.message.reply_text(
-            t(context, "choose_lang", user_id=user_id),
-            reply_markup=markup
-        )
+    await query.message.edit_text(
+        t(context, "choose_lang", user_id=user_id),
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
