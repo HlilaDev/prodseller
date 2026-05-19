@@ -10,7 +10,7 @@ class Client(Base):
     telegram_id = Column(String, unique=True, index=True)
     username    = Column(String, nullable=True)
     first_name  = Column(String, nullable=True)
-    lang        = Column(String, default="en")          # ← NEW
+    lang        = Column(String, default="en")
     created_at  = Column(DateTime, default=datetime.utcnow)
 
 
@@ -50,3 +50,23 @@ class ProductKey(Base):
     used       = Column(Boolean, default=False)
     used_at    = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PendingPayment(Base):
+    """
+    Tracks a Binance Pay payment awaiting note-based auto-detection.
+    note  = unique 8-char code shown to user in the Remark field
+    expires_at = 30 minutes from creation
+    """
+    __tablename__ = "pending_payments"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    telegram_id = Column(String, index=True)
+    product_id  = Column(Integer, nullable=False)
+    price       = Column(Float,  nullable=False)
+    note        = Column(String, unique=True, index=True)  # e.g. T00LS-9BE380
+    message_id  = Column(Integer, nullable=True)           # Telegram message to edit
+    chat_id     = Column(String,  nullable=True)
+    expires_at  = Column(DateTime, nullable=False)
+    fulfilled   = Column(Boolean, default=False)
+    created_at  = Column(DateTime, default=datetime.utcnow)

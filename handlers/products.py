@@ -1,4 +1,7 @@
 import os
+import asyncio
+from datetime import datetime
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes, ConversationHandler,
@@ -7,10 +10,11 @@ from telegram.ext import (
 from services.orders import create_order, get_user_orders, update_order, deliver_key_for_order
 from services.products import get_active_products
 from services.keys import pop_key, count_available_keys
-from services.binance_verify import verify_binance_transaction
+from services.pending_payments import create_pending_payment, update_message_id
 from keyboards.menus import main_menu
 
-CHOOSE_PAYMENT, WAIT_TX_ID = range(2)
+BINANCE_PAY_ID = os.getenv("BINANCE_PAY_ID", "NOT_SET")
+EXPIRE_MINUTES = 30
 
 
 def _t(context, key, user_id=None, **kwargs):
@@ -41,6 +45,7 @@ async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ── When client taps a product → show Binance Pay deposit window ──────────
 async def on_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
     await query.answer()
@@ -61,130 +66,209 @@ async def on_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
 
-    context.user_data["pending_product"] = {
-        "id": product.id, "name": product.name,
-        "price": product.price, "emoji": product.emoji,
-    }
+    # Create a pending payment with a unique note
+    chat_id = str(query.message.chat_id)
+    pp = create_pending_payment(
+        telegram_id = user_id,
+        product_id  = product_id,
+        price       = product.price,
+        chat_id     = chat_id,
+    )
 
-    binance_id = os.getenv("BINANCE_PAY_ID", "NOT SET")
-    await query.message.edit_text(
-        _t(context, "pay_instructions", user_id=user_id,
-           emoji=product.emoji, name=product.name,
-           price=product.price, binance_id=binance_id),
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton(_t(context, "cancel_btn", user_id=user_id), callback_data="pay_cancel")
+    text = _build_payment_message(product, pp.note, pp.price)
+
+    sent = await query.message.edit_text(
+        text,
+        parse_mode = "Markdown",
+        reply_markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("❌ Cancel", callback_data=f"pay_cancel_{pp.id}"),
         ]])
     )
-    return WAIT_TX_ID
 
+    # Save the message_id so poller can edit it when payment arrives
+    update_message_id(pp.id, sent.message_id)
 
-async def on_receive_tx_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Called when the client sends a Binance transaction ID.
-    Flow:
-      1. Create a pending order in the DB.
-      2. Verify the TX via Binance Pay API.
-      3. If verified → pop a key from product_keys → deliver automatically.
-      4. If no key available → notify admin to deliver manually.
-      5. If verification fails → mark order rejected + ask to retry (stay in WAIT_TX_ID).
-    """
-    tx_id   = update.message.text.strip()
-    user    = update.effective_user
-    user_id = str(user.id)
-    product = context.user_data.get("pending_product")
+    # Store in user_data so /claim and cancel can reference it
+    context.user_data["active_pending_id"] = pp.id
 
-    if not product:
-        await update.message.reply_text(_t(context, "session_expired", user_id=user_id))
-        return ConversationHandler.END
-
-    # ── 1. Create order (pending) ─────────────────────────────────────────
-    order = create_order(
-        telegram_id    = user_id,
-        product_id     = product["id"],
-        product_name   = product["name"],
-        price          = product["price"],
-        payment_method = "binance",
-        tx_id          = tx_id,
-    )
-
-    wait_msg = await update.message.reply_text(_t(context, "verifying", user_id=user_id))
-
-    # ── 2. Verify payment with Binance ────────────────────────────────────
-    result = await verify_binance_transaction(tx_id, product["price"])
-
-    if not result["success"]:
-        update_order(order.id, status="rejected")
-        # ⚠️ DO NOT clear user_data or return END here.
-        # Stay in WAIT_TX_ID so the client can retry with the correct TX ID.
-        await wait_msg.edit_text(
-            f"❌ *Verification failed*\n"
-            f"Reason: {result['error']}\n\n"
-            f"👆 Please send the correct Binance Transaction ID to try again, "
-            f"or press ❌ Cancel below.",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel")
-            ]])
-        )
-        return WAIT_TX_ID  # ← key fix: stay in conversation, allow retry
-
-    # ── 3. Payment verified → pop a key from the DB ───────────────────────
-    key = pop_key(product["id"])
-
-    if not key:
-        # Payment valid but stock ran out between check and pop (race condition)
-        update_order(order.id, status="approved")
-        await wait_msg.edit_text(_t(context, "no_key", user_id=user_id), parse_mode="Markdown")
-        await _notify_admin(update, order, product, tx_id, key=None)
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    # ── 4. Key found → mark delivered and send to client ──────────────────
-    deliver_key_for_order(order.id, key)   # status=approved + delivered_key saved
-
-    await wait_msg.edit_text(
-        _t(context, "order_confirmed", user_id=user_id,
-           emoji=product["emoji"], name=product["name"],
-           price=product["price"], key=key),
-        parse_mode="Markdown"
-    )
-
-    # ── 5. Notify admin ───────────────────────────────────────────────────
-    await _notify_admin(update, order, product, tx_id, key=key)
-
-    context.user_data.clear()
     return ConversationHandler.END
 
 
-async def _notify_admin(update, order, product, tx_id, key):
-    admin_id = os.getenv("ADMIN_ID")
-    if not admin_id:
-        return
-    key_line = f"🔑 Key: `{key}`" if key else "⚠️ No key in stock — send manually!"
-    try:
-        await update.get_bot().send_message(
-            chat_id=admin_id,
-            text=(
-                f"{'✅' if key else '⚠️'} *Order #{order.id}*\n\n"
-                f"👤 @{update.effective_user.username or update.effective_user.first_name} "
-                f"(`{update.effective_user.id}`)\n"
-                f"📦 {product['emoji']} {product['name']} — ${product['price']}\n"
-                f"🔖 TX: `{tx_id}`\n{key_line}"
-            ),
+def _build_payment_message(product, note: str, price: float) -> str:
+    return (
+        f"✅ *Deposit Request Created!*\n\n"
+        f"🔸 *Method:* Binance Pay\n\n"
+        f"💰 *Send EXACTLY:*\n"
+        f"`{price}` USDT\n\n"
+        f"🆔 *To Binance ID:*\n"
+        f"`{BINANCE_PAY_ID}`\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ *IMPORTANT:*\n"
+        f"To confirm your payment, you MUST do ONE of the following:\n\n"
+        f"1️⃣ Write this *Note / Remark* when sending:\n"
+        f"`{note}`\n\n"
+        f"2️⃣ OR after paying, send the *Order ID (Reference)* here: /claim {note}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"📱 *Binance → Pay → Send → paste ID → enter amount*\n\n"
+        f"🤖 *Auto-detection:* Payments with the correct note are "
+        f"detected in 1-2 mins automatically!\n\n"
+        f"🔑 Or manually verify by sending: `/claim {note}`\n\n"
+        f"⏰ This request expires in *{EXPIRE_MINUTES} minutes.*"
+    )
+
+
+# ── /claim NOTE — manual trigger after paying ────────────────────────────
+async def on_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User sends /claim NOTE after paying to force-check."""
+    user_id = str(update.effective_user.id)
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Usage: `/claim YOUR_NOTE`",
             parse_mode="Markdown"
         )
-    except Exception as e:
-        print(f"Admin notify error: {e}")
+        return
+
+    note = args[0].upper()
+
+    from services.pending_payments import get_by_note, mark_fulfilled
+    from services.binance_pay import fetch_recent_pay_transactions, match_note_in_transactions
+    from services.products import get_all_products
+    from services.keys import pop_key
+    from services.orders import create_order, deliver_key_for_order
+
+    pp = get_by_note(note)
+
+    if not pp:
+        await update.message.reply_text("❌ No pending payment found with this note.")
+        return
+
+    if pp.fulfilled:
+        await update.message.reply_text("✅ This payment was already processed.")
+        return
+
+    if pp.telegram_id != user_id:
+        await update.message.reply_text("❌ This note doesn't belong to your account.")
+        return
+
+    now = datetime.utcnow()
+    if pp.expires_at < now:
+        await update.message.reply_text("⏰ This payment request has expired. Please start a new order.")
+        mark_fulfilled(pp.id)
+        return
+
+    wait = await update.message.reply_text("⏳ Checking Binance Pay... please wait.")
+
+    txs = await fetch_recent_pay_transactions(limit=100)
+    tx  = match_note_in_transactions(txs, pp.note, pp.price)
+
+    if not tx:
+        await wait.edit_text(
+            "❌ *Payment not found yet.*\n\n"
+            "Make sure you:\n"
+            "• Sent the correct amount\n"
+            "• Added the note in the Remark field\n"
+            "• Payment completed successfully\n\n"
+            "Auto-detection runs every 12 seconds. Wait 1-2 min and try again.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Found → deliver
+    mark_fulfilled(pp.id)
+    tx_ref = tx.get("orderId") or tx.get("transId") or tx.get("bizId") or pp.note
+
+    products_map = {p.id: p for p in get_all_products()}
+    product = products_map.get(pp.product_id)
+
+    if not product:
+        await wait.edit_text("✅ Payment confirmed! Contact support for delivery.")
+        return
+
+    order = create_order(
+        telegram_id    = user_id,
+        product_id     = pp.product_id,
+        product_name   = product.name,
+        price          = pp.price,
+        payment_method = "binance_pay",
+        tx_id          = tx_ref,
+    )
+    key = pop_key(pp.product_id)
+
+    if key:
+        deliver_key_for_order(order.id, key)
+        text = (
+            f"🎉 *Order Confirmed!*\n\n"
+            f"📦 {product.emoji} *{product.name}*\n"
+            f"💵 ${pp.price} USDT\n\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🔑 *Your Key:*\n`{key}`\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"Thank you! 🙏 Support: @sookbit"
+        )
+    else:
+        text = (
+            f"✅ *Payment Received!*\n\n"
+            f"📦 {product.emoji} *{product.name}* — ${pp.price} USDT\n\n"
+            f"⚠️ Stock temporarily unavailable. Contact support: @sookbit"
+        )
+
+    await wait.edit_text(text, parse_mode="Markdown")
+
+    # Also edit the original deposit message if still there
+    if pp.message_id and pp.chat_id:
+        try:
+            await update.get_bot().edit_message_text(
+                chat_id    = pp.chat_id,
+                message_id = pp.message_id,
+                text       = text,
+                parse_mode = "Markdown",
+            )
+        except Exception:
+            pass
+
+    # Notify admin
+    admin_id = os.getenv("ADMIN_ID")
+    if admin_id:
+        key_line = f"🔑 Key: `{key}`" if key else "⚠️ No key — deliver manually!"
+        try:
+            await update.get_bot().send_message(
+                chat_id    = admin_id,
+                text       = (
+                    f"{'✅' if key else '⚠️'} *Manual Claim Confirmed*\n\n"
+                    f"👤 `{user_id}`\n"
+                    f"📦 {product.emoji} {product.name} — ${pp.price}\n"
+                    f"🏷️ Note: `{pp.note}`\n"
+                    f"🔖 TX: `{tx_ref}`\n"
+                    f"{key_line}"
+                ),
+                parse_mode = "Markdown",
+            )
+        except Exception:
+            pass
 
 
+# ── Cancel button ────────────────────────────────────────────────────────
 async def on_pay_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = str(query.from_user.id)
-    await query.message.edit_text(_t(context, "order_cancelled", user_id=user_id), reply_markup=None)
+
+    # Extract pending_id from callback data "pay_cancel_<id>"
+    data = query.data
+    pending_id = None
+    if "_" in data:
+        try:
+            pending_id = int(data.rsplit("_", 1)[-1])
+        except ValueError:
+            pass
+
+    if pending_id:
+        from services.pending_payments import mark_fulfilled
+        mark_fulfilled(pending_id)
+
+    await query.message.edit_text("❌ Order cancelled.", reply_markup=None)
     context.user_data.clear()
-    return ConversationHandler.END
 
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,6 +278,7 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 
+# ── General product/menu button router ───────────────────────────────────
 async def product_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
     await query.answer()
@@ -244,27 +329,20 @@ async def product_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-payment_conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(on_buy_product, pattern=r"^buy_\d+$")],
-    states={
-        WAIT_TX_ID: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, on_receive_tx_id),
-            CallbackQueryHandler(on_pay_cancel, pattern="^pay_cancel$"),
-        ],
-    },
-    fallbacks=[
+# ── No ConversationHandler needed anymore — buy is one-shot ──────────────
+# We keep payment_conv_handler as a dummy shell so main.py import doesn't break
+from telegram.ext import ConversationHandler as _CH
+payment_conv_handler = _CH(
+    entry_points = [CallbackQueryHandler(on_buy_product, pattern=r"^buy_\d+$")],
+    states       = {},
+    fallbacks    = [
         CommandHandler("start",  cancel_conversation),
         CommandHandler("cancel", cancel_conversation),
-        CallbackQueryHandler(on_pay_cancel, pattern="^pay_cancel$"),
-        # Menu buttons clicked during a purchase → cancel and go to menu
-        CallbackQueryHandler(
-            cancel_conversation,
-            pattern=r"^(menu_products|menu_orders|menu_support|menu_language|back_main)$"
-        ),
+        CallbackQueryHandler(on_pay_cancel, pattern=r"^pay_cancel"),
     ],
-    per_user=True,
-    per_chat=True,
-    per_message=False,
-    block=False,
-    allow_reentry=True,
+    per_user     = True,
+    per_chat     = True,
+    per_message  = False,
+    block        = False,
+    allow_reentry= True,
 )

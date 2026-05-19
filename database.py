@@ -2,10 +2,8 @@ import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-# ── PostgreSQL on Render (falls back to SQLite for local dev) ─────────────
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bot.db")
 
-# Render gives  postgres://...  — SQLAlchemy 1.4+ needs  postgresql://
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -17,7 +15,7 @@ if DATABASE_URL.startswith("sqlite"):
 else:
     engine = create_engine(
         DATABASE_URL,
-        pool_pre_ping=True,        # detect dropped connections
+        pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
     )
@@ -30,11 +28,9 @@ class Base(DeclarativeBase):
 
 
 def run_migrations():
-    """Safe incremental migrations — each column added only if missing."""
+    """Safe incremental migrations."""
     with engine.connect() as conn:
         is_sqlite = DATABASE_URL.startswith("sqlite")
-
-        migrations = []
 
         if is_sqlite:
             migrations = [
@@ -48,9 +44,8 @@ def run_migrations():
                     conn.commit()
                     print(f"✅ Migration (SQLite): {sql[:60]}")
                 except Exception:
-                    pass  # column already exists — fine
+                    pass
         else:
-            # PostgreSQL: check information_schema before altering
             pg_migrations = [
                 ("clients", "lang",          "TEXT DEFAULT 'en'"),
                 ("orders",  "product_id",    "INTEGER"),
@@ -67,5 +62,3 @@ def run_migrations():
                     ))
                     conn.commit()
                     print(f"✅ Migration (PG): ALTER TABLE {table} ADD COLUMN {col}")
-                else:
-                    print(f"⏭️  Migration skip: {table}.{col} already exists")

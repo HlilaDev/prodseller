@@ -19,6 +19,7 @@ except Exception as e:
 
 try:
     from database import Base, engine, run_migrations
+import models  # noqa: ensure all ORM models registered
     print("✅ [3] Database OK")
 except Exception as e:
     print(f"❌ [3] Database FAILED: {e}")
@@ -27,7 +28,7 @@ except Exception as e:
 
 try:
     from handlers.start import start, language_callback
-    from handlers.products import products, product_buttons, payment_conv_handler
+    from handlers.products import products, product_buttons, payment_conv_handler, on_claim, on_pay_cancel
     from handlers.orders import my_orders
     from handlers.admin import admin_orders, approve_order, reject_order
     from admin.routes import router as admin_router
@@ -47,14 +48,15 @@ app.include_router(admin_router)
 
 telegram_app = Application.builder().token(TOKEN).build()
 
-# ── IMPORTANT: Order matters ──────────────────────────────────────────────
-# 1. ConversationHandler FIRST — it captures TX ID messages
+# ── Handlers — ORDER MATTERS ──────────────────────────────────────────────
+# 1. ConversationHandler (buy flow)
 telegram_app.add_handler(payment_conv_handler)
 
 # 2. Commands
 telegram_app.add_handler(CommandHandler("start",       start))
 telegram_app.add_handler(CommandHandler("buy",         products))
 telegram_app.add_handler(CommandHandler("orders",      my_orders))
+telegram_app.add_handler(CommandHandler("claim",       on_claim))      # ← NEW
 telegram_app.add_handler(CommandHandler("adminorders", admin_orders))
 telegram_app.add_handler(CommandHandler("approve",     approve_order))
 telegram_app.add_handler(CommandHandler("reject",      reject_order))
@@ -64,49 +66,39 @@ telegram_app.add_handler(CallbackQueryHandler(
     language_callback, pattern=r"^(menu_language|setlang_.+)$"
 ))
 
-# 4. General inline callbacks (menu navigation)
+# 4. Pay cancel (pay_cancel_<id>)
+telegram_app.add_handler(CallbackQueryHandler(
+    on_pay_cancel, pattern=r"^pay_cancel"
+))
+
+# 5. General inline callbacks
 telegram_app.add_handler(CallbackQueryHandler(product_buttons))
 
-# 5. Reply keyboard buttons — strict matching + cooldown to prevent spam
+# 6. Reply keyboard buttons
 import time
-
-_last_reply: dict = {}  # user_id → timestamp
-
-KNOWN_BUTTONS = [
-    "🛍️ Shop", "📦 My Orders", "🛟 Support", "🌐 Language",
-    # Also handle any emoji rendering variants
-    "Shop", "My Orders", "Support", "Language",
-]
+_last_reply: dict = {}
 
 async def handle_reply_buttons(update: Update, context):
     if not update.message or not update.message.text:
         return
-
     text    = update.message.text.strip()
     user_id = str(update.effective_user.id)
-
-    # Handle reply keyboard buttons — match by keyword (emoji-safe)
     text_lower = text.lower()
     matched = (
-        "shop" in text_lower or
-        "order" in text_lower or
-        "support" in text_lower or
+        "shop"     in text_lower or
+        "order"    in text_lower or
+        "support"  in text_lower or
         "language" in text_lower or
-        "lang" in text_lower
+        "lang"     in text_lower
     )
     if not matched:
         return
-
-    # Cooldown: ignore if same user clicked within 2 seconds
     now = time.time()
     if now - _last_reply.get(user_id, 0) < 2:
         return
     _last_reply[user_id] = now
-
     from handlers.start import t
-
-    text_lower = text.lower()
-    if "shop" in text_lower:
+    if "shop"    in text_lower:
         await products(update, context)
     elif "order" in text_lower:
         await my_orders(update, context)
@@ -116,7 +108,7 @@ async def handle_reply_buttons(update: Update, context):
         keyboard = [
             [InlineKeyboardButton("🇬🇧 English", callback_data="setlang_en")],
             [InlineKeyboardButton("🇸🇦 العربية", callback_data="setlang_ar")],
-            [InlineKeyboardButton("🇪🇸 Español", callback_data="setlang_es")],
+            [InlineKeyboardButton("🇪🇸 Español",  callback_data="setlang_es")],
         ]
         await update.message.reply_text(
             t(context, "choose_lang", user_id=user_id),
@@ -136,8 +128,9 @@ print("✅ [5] All handlers registered")
 @app.on_event("startup")
 async def startup():
     import asyncio
+    from services.payment_poller import payment_poll_loop   # lazy import avoids circular
 
-    # ── 1. DB ─────────────────────────────────────────────────────────────
+    # 1. DB
     print("🔄 [startup] Creating DB tables...")
     try:
         Base.metadata.create_all(bind=engine)
@@ -147,8 +140,7 @@ async def startup():
         print(f"❌ [startup] DB error: {e}")
         traceback.print_exc()
 
-    # ── 2. Delete any stale webhook BEFORE initializing ───────────────────
-    # This prevents "conflict" errors when Render redeploys
+    # 2. Clear old webhook
     print("🔄 [startup] Clearing old webhook...")
     try:
         import httpx
@@ -158,11 +150,11 @@ async def startup():
             )
         print("✅ [startup] Old webhook cleared")
     except Exception as e:
-        print(f"⚠️ [startup] Could not clear webhook (non-fatal): {e}")
+        print(f"⚠️ [startup] Could not clear webhook: {e}")
 
-    await asyncio.sleep(1)  # small pause so Telegram releases the old connection
+    await asyncio.sleep(1)
 
-    # ── 3. Initialize & start bot ─────────────────────────────────────────
+    # 3. Start Telegram
     print("🔄 [startup] Starting Telegram app...")
     try:
         await telegram_app.initialize()
@@ -171,9 +163,9 @@ async def startup():
     except Exception as e:
         print(f"❌ [startup] Telegram start error: {e}")
         traceback.print_exc()
-        return  # no point setting webhook if bot didn't start
+        return
 
-    # ── 4. Set webhook ────────────────────────────────────────────────────
+    # 4. Set webhook
     if RENDER_URL:
         try:
             webhook_url = f"{RENDER_URL}/webhook"
@@ -185,9 +177,12 @@ async def startup():
             print(f"✅ [startup] Webhook set → {webhook_url}")
         except Exception as e:
             print(f"❌ [startup] Webhook error: {e}")
-            traceback.print_exc()
     else:
         print("⚠️ RENDER_URL not set — webhook NOT configured")
+
+    # 5. Start payment polling loop
+    asyncio.create_task(payment_poll_loop(telegram_app.bot))
+    print("✅ [startup] Payment polling task started")
 
 
 @app.on_event("shutdown")
