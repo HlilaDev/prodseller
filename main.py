@@ -19,7 +19,7 @@ except Exception as e:
 
 try:
     from database import Base, engine, run_migrations
-import models  # noqa: ensure all ORM models registered
+    import models  # noqa: ensure all ORM models registered (including PendingPayment)
     print("✅ [3] Database OK")
 except Exception as e:
     print(f"❌ [3] Database FAILED: {e}")
