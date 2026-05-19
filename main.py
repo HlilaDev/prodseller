@@ -19,7 +19,7 @@ except Exception as e:
 
 try:
     from database import Base, engine, run_migrations
-    import models  # noqa: ensure all ORM models registered (including PendingPayment)
+    import models  # noqa: registers all ORM models (including PendingPayment)
     print("✅ [3] Database OK")
 except Exception as e:
     print(f"❌ [3] Database FAILED: {e}")
@@ -28,7 +28,10 @@ except Exception as e:
 
 try:
     from handlers.start import start, language_callback
-    from handlers.products import products, product_buttons, payment_conv_handler, on_claim, on_pay_cancel
+    from handlers.products import (
+        products, product_buttons,
+        on_buy_product, on_pay_cancel, on_claim,
+    )
     from handlers.orders import my_orders
     from handlers.admin import admin_orders, approve_order, reject_order
     from admin.routes import router as admin_router
@@ -48,49 +51,42 @@ app.include_router(admin_router)
 
 telegram_app = Application.builder().token(TOKEN).build()
 
-# ── Handlers — ORDER MATTERS ──────────────────────────────────────────────
-# 1. ConversationHandler (buy flow)
-telegram_app.add_handler(payment_conv_handler)
+# ── Register handlers — ORDER MATTERS ────────────────────────────────────
 
-# 2. Commands
+# 1. Buy a product (direct CallbackQueryHandler, no ConversationHandler)
+telegram_app.add_handler(CallbackQueryHandler(on_buy_product, pattern=r"^buy_\d+$"))
+
+# 2. Cancel deposit (pay_cancel_<id>)
+telegram_app.add_handler(CallbackQueryHandler(on_pay_cancel, pattern=r"^pay_cancel_"))
+
+# 3. Commands
 telegram_app.add_handler(CommandHandler("start",       start))
 telegram_app.add_handler(CommandHandler("buy",         products))
 telegram_app.add_handler(CommandHandler("orders",      my_orders))
-telegram_app.add_handler(CommandHandler("claim",       on_claim))      # ← NEW
+telegram_app.add_handler(CommandHandler("claim",       on_claim))
 telegram_app.add_handler(CommandHandler("adminorders", admin_orders))
 telegram_app.add_handler(CommandHandler("approve",     approve_order))
 telegram_app.add_handler(CommandHandler("reject",      reject_order))
 
-# 3. Language callbacks
+# 4. Language callbacks
 telegram_app.add_handler(CallbackQueryHandler(
     language_callback, pattern=r"^(menu_language|setlang_.+)$"
 ))
 
-# 4. Pay cancel (pay_cancel_<id>)
-telegram_app.add_handler(CallbackQueryHandler(
-    on_pay_cancel, pattern=r"^pay_cancel"
-))
-
-# 5. General inline callbacks
+# 5. General menu callbacks (back_main, menu_products, menu_orders, support…)
 telegram_app.add_handler(CallbackQueryHandler(product_buttons))
 
-# 6. Reply keyboard buttons
+# 6. Reply keyboard buttons with 2-second cooldown
 import time
 _last_reply: dict = {}
 
 async def handle_reply_buttons(update: Update, context):
     if not update.message or not update.message.text:
         return
-    text    = update.message.text.strip()
-    user_id = str(update.effective_user.id)
+    text       = update.message.text.strip()
+    user_id    = str(update.effective_user.id)
     text_lower = text.lower()
-    matched = (
-        "shop"     in text_lower or
-        "order"    in text_lower or
-        "support"  in text_lower or
-        "language" in text_lower or
-        "lang"     in text_lower
-    )
+    matched    = any(w in text_lower for w in ("shop", "order", "support", "language", "lang"))
     if not matched:
         return
     now = time.time()
@@ -115,10 +111,10 @@ async def handle_reply_buttons(update: Update, context):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-telegram_app.add_handler(MessageHandler(
-    filters.TEXT & ~filters.COMMAND,
-    handle_reply_buttons
-), group=1)
+telegram_app.add_handler(
+    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reply_buttons),
+    group=1
+)
 
 print("✅ [5] All handlers registered")
 
@@ -128,9 +124,8 @@ print("✅ [5] All handlers registered")
 @app.on_event("startup")
 async def startup():
     import asyncio
-    from services.payment_poller import payment_poll_loop   # lazy import avoids circular
+    from services.payment_poller import payment_poll_loop
 
-    # 1. DB
     print("🔄 [startup] Creating DB tables...")
     try:
         Base.metadata.create_all(bind=engine)
@@ -140,7 +135,6 @@ async def startup():
         print(f"❌ [startup] DB error: {e}")
         traceback.print_exc()
 
-    # 2. Clear old webhook
     print("🔄 [startup] Clearing old webhook...")
     try:
         import httpx
@@ -154,7 +148,6 @@ async def startup():
 
     await asyncio.sleep(1)
 
-    # 3. Start Telegram
     print("🔄 [startup] Starting Telegram app...")
     try:
         await telegram_app.initialize()
@@ -165,7 +158,6 @@ async def startup():
         traceback.print_exc()
         return
 
-    # 4. Set webhook
     if RENDER_URL:
         try:
             webhook_url = f"{RENDER_URL}/webhook"
@@ -180,7 +172,6 @@ async def startup():
     else:
         print("⚠️ RENDER_URL not set — webhook NOT configured")
 
-    # 5. Start payment polling loop
     asyncio.create_task(payment_poll_loop(telegram_app.bot))
     print("✅ [startup] Payment polling task started")
 
