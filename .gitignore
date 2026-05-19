@@ -1,0 +1,21 @@
+# Variables d'environnement (IMPORTANT)
+.env
+
+# Base de données locale
+bot.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Environnement virtuel
+venv/
+
+# VSCode
+.vscode/
+
+# Windows
+Thumbs.db
+desktop.ini
