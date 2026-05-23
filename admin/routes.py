@@ -6,7 +6,7 @@ import os
 
 from services.products import get_all_products, create_product, toggle_product
 from services.orders import get_all_orders, update_order_status, get_order
-from services.keys import add_keys, get_all_keys, count_available_keys
+from services.keys import add_keys, get_all_keys, count_available_keys, delete_all_keys
 
 router = APIRouter()
 templates = Jinja2Templates(directory="admin/templates")
@@ -100,6 +100,14 @@ async def add_keys_route(request: Request, product_id: int,
         return RedirectResponse("/admin/login", status_code=302)
     key_list = [k.strip() for k in keys_text.splitlines() if k.strip()]
     add_keys(product_id, key_list)
+    return RedirectResponse(f"/admin/products/{product_id}/keys", status_code=302)
+
+
+@router.get("/admin/products/{product_id}/keys/delete-all")
+async def delete_all_keys_route(request: Request, product_id: int):
+    if not is_logged_in(request):
+        return RedirectResponse("/admin/login", status_code=302)
+    delete_all_keys(product_id)
     return RedirectResponse(f"/admin/products/{product_id}/keys", status_code=302)
 
 

@@ -71,6 +71,9 @@
                        class="btn btn-info btn-sm">🔑 Keys</a>
                     <a href="/admin/products/toggle/{{ item.product.id }}"
                        class="btn btn-warning btn-sm ms-1">Toggle</a>
+                    <a href="/admin/products/{{ item.product.id }}/keys/delete-all"
+                       class="btn btn-danger btn-sm ms-1"
+                       onclick="return confirm('⚠️ Delete ALL keys for this product? This cannot be undone.')">🗑️ Clear Keys</a>
                 </td>
             </tr>
         {% endfor %}

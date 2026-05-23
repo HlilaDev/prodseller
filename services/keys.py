@@ -60,3 +60,18 @@ def get_all_keys(product_id: int) -> list:
     ).order_by(ProductKey.id).all()
     db.close()
     return keys
+
+
+def delete_all_keys(product_id: int) -> int:
+    """Delete all keys (used and unused) for a product. Returns count deleted."""
+    db = SessionLocal()
+    count = db.query(ProductKey).filter(
+        ProductKey.product_id == product_id
+    ).delete()
+    # Reset product stock to 0
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if product:
+        product.stock = 0
+    db.commit()
+    db.close()
+    return count

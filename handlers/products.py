@@ -28,10 +28,16 @@ def build_products_keyboard(context, user_id=None):
     db_products = get_active_products()
     if not db_products:
         return None, _t(context, "no_products", user_id=user_id)
-    keyboard = [
-        [InlineKeyboardButton(f"{p.emoji} {p.name} | ${p.price}", callback_data=f"buy_{p.id}")]
-        for p in db_products
-    ]
+    keyboard = []
+    for p in db_products:
+        qty = count_available_keys(p.id)
+        qty_label = f"[{qty}]" if qty > 0 else "[❌ Out of stock]"
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{p.emoji} {p.name} | ${p.price} {qty_label}",
+                callback_data=f"buy_{p.id}"
+            )
+        ])
     keyboard.append([InlineKeyboardButton("🛟 Support", callback_data="support")])
     keyboard.append([InlineKeyboardButton(_t(context, "back_btn", user_id=user_id), callback_data="back_main")])
     return InlineKeyboardMarkup(keyboard), None
