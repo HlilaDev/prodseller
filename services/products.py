@@ -46,3 +46,16 @@ def toggle_product(product_id):
 
     db.close()
     return product
+
+
+def delete_product(product_id):
+    db = SessionLocal()
+    from models import ProductKey
+    # Supprimer toutes les keys du produit d'abord
+    db.query(ProductKey).filter(ProductKey.product_id == product_id).delete()
+    # Supprimer le produit
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if product:
+        db.delete(product)
+        db.commit()
+    db.close()

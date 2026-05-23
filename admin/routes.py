@@ -4,9 +4,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 import os
 
-from services.products import get_all_products, create_product, toggle_product
+from services.products import get_all_products, create_product, toggle_product, delete_product
 from services.orders import get_all_orders, update_order_status, get_order
-from services.keys import add_keys, get_all_keys, count_available_keys, delete_all_keys
+from services.keys import add_keys, get_all_keys, count_available_keys
 
 router = APIRouter()
 templates = Jinja2Templates(directory="admin/templates")
@@ -103,12 +103,12 @@ async def add_keys_route(request: Request, product_id: int,
     return RedirectResponse(f"/admin/products/{product_id}/keys", status_code=302)
 
 
-@router.get("/admin/products/{product_id}/keys/delete-all")
-async def delete_all_keys_route(request: Request, product_id: int):
+@router.get("/admin/products/delete/{product_id}")
+async def delete_product_route(request: Request, product_id: int):
     if not is_logged_in(request):
         return RedirectResponse("/admin/login", status_code=302)
-    delete_all_keys(product_id)
-    return RedirectResponse(f"/admin/products/{product_id}/keys", status_code=302)
+    delete_product(product_id)
+    return RedirectResponse("/admin/products", status_code=302)
 
 
 # ── Orders ────────────────────────────────────────────────────────────────
