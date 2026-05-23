@@ -18,32 +18,20 @@ def get_active_products():
 
 def create_product(name, price, emoji, stock):
     db = SessionLocal()
-
-    product = Product(
-        name=name,
-        price=price,
-        emoji=emoji,
-        stock=stock,
-        active=True
-    )
-
+    product = Product(name=name, price=price, emoji=emoji, stock=stock, active=True)
     db.add(product)
     db.commit()
     db.refresh(product)
     db.close()
-
     return product
 
 
 def toggle_product(product_id):
     db = SessionLocal()
-
     product = db.query(Product).filter(Product.id == product_id).first()
-
     if product:
         product.active = not product.active
         db.commit()
-
     db.close()
     return product
 
@@ -51,9 +39,7 @@ def toggle_product(product_id):
 def delete_product(product_id):
     db = SessionLocal()
     from models import ProductKey
-    # Supprimer toutes les keys du produit d'abord
     db.query(ProductKey).filter(ProductKey.product_id == product_id).delete()
-    # Supprimer le produit
     product = db.query(Product).filter(Product.id == product_id).first()
     if product:
         db.delete(product)

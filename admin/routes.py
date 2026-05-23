@@ -76,12 +76,19 @@ async def product_toggle(request: Request, product_id: int):
     return RedirectResponse("/admin/products", status_code=302)
 
 
+@router.get("/admin/products/delete/{product_id}")
+async def delete_product_route(request: Request, product_id: int):
+    if not is_logged_in(request):
+        return RedirectResponse("/admin/login", status_code=302)
+    delete_product(product_id)
+    return RedirectResponse("/admin/products", status_code=302)
+
+
 # ── Keys management ───────────────────────────────────────────────────────
 @router.get("/admin/products/{product_id}/keys", response_class=HTMLResponse)
 async def keys_page(request: Request, product_id: int):
     if not is_logged_in(request):
         return RedirectResponse("/admin/login", status_code=302)
-    from services.products import get_all_products
     products = get_all_products()
     product = next((p for p in products if p.id == product_id), None)
     if not product:
@@ -101,14 +108,6 @@ async def add_keys_route(request: Request, product_id: int,
     key_list = [k.strip() for k in keys_text.splitlines() if k.strip()]
     add_keys(product_id, key_list)
     return RedirectResponse(f"/admin/products/{product_id}/keys", status_code=302)
-
-
-@router.get("/admin/products/delete/{product_id}")
-async def delete_product_route(request: Request, product_id: int):
-    if not is_logged_in(request):
-        return RedirectResponse("/admin/login", status_code=302)
-    delete_product(product_id)
-    return RedirectResponse("/admin/products", status_code=302)
 
 
 # ── Orders ────────────────────────────────────────────────────────────────

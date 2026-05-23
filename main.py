@@ -30,7 +30,7 @@ try:
     from handlers.start import start, language_callback
     from handlers.products import (
         products, product_buttons,
-        on_buy_product, on_pay_cancel, on_claim,
+        on_buy_product, on_pay_cancel, on_claim, on_qty_selected,
     )
     from handlers.orders import my_orders
     from handlers.admin import admin_orders, approve_order, reject_order
@@ -53,10 +53,13 @@ telegram_app = Application.builder().token(TOKEN).build()
 
 # ── Register handlers — ORDER MATTERS ────────────────────────────────────
 
-# 1. Buy a product (direct CallbackQueryHandler, no ConversationHandler)
+# 1. Buy a product → quantity selector
 telegram_app.add_handler(CallbackQueryHandler(on_buy_product, pattern=r"^buy_\d+$"))
 
-# 2. Cancel deposit (pay_cancel_<id>)
+# 2. Quantity selected → create pending payment
+telegram_app.add_handler(CallbackQueryHandler(on_qty_selected, pattern=r"^qty_\d+_\d+$"))
+
+# 3. Cancel deposit (pay_cancel_<id>)
 telegram_app.add_handler(CallbackQueryHandler(on_pay_cancel, pattern=r"^pay_cancel_"))
 
 # 3. Commands

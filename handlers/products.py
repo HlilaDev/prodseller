@@ -43,6 +43,22 @@ def build_products_keyboard(context, user_id=None):
     return InlineKeyboardMarkup(keyboard), None
 
 
+def build_quantity_keyboard(product_id: int, available: int, user_id=None):
+    """Show quantity selector 1..min(available,10)"""
+    max_qty = min(available, 10)
+    buttons = []
+    row = []
+    for i in range(1, max_qty + 1):
+        row.append(InlineKeyboardButton(str(i), callback_data=f"qty_{product_id}_{i}"))
+        if len(row) == 5:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton("🔙 Back", callback_data="menu_products")])
+    return InlineKeyboardMarkup(buttons)
+
+
 async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     markup, error = build_products_keyboard(context, str(user.id))
@@ -53,10 +69,13 @@ async def products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def _build_payment_message(product, note: str, price: float) -> str:
+def _build_payment_message(product, note: str, price: float, quantity: int = 1) -> str:
+    qty_line = f"🔢 *Quantity:* {quantity}\n" if quantity > 1 else ""
     return (
         f"✅ *Deposit Request Created!*\n\n"
         f"🔸 *Method:* Binance Pay\n\n"
+        f"📦 *Product:* {product.emoji} {product.name}\n"
+        f"{qty_line}"
         f"💰 *Send EXACTLY:*\n"
         f"`{price}` USDT\n\n"
         f"🆔 *To Binance ID:*\n"
@@ -76,7 +95,7 @@ def _build_payment_message(product, note: str, price: float) -> str:
     )
 
 
-# ── Buy button → show deposit window (NO ConversationHandler) ─────────────
+# ── Buy button → show quantity selector ──────────────────────────────────
 async def on_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
     await query.answer()
@@ -90,22 +109,68 @@ async def on_buy_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(_t(context, "product_not_found", user_id=user_id))
         return
 
-    if count_available_keys(product_id) == 0:
+    available = count_available_keys(product_id)
+    if available == 0:
         await query.message.reply_text(
             _t(context, "out_of_stock", user_id=user_id, name=product.name),
             parse_mode="Markdown"
         )
         return
 
-    chat_id = str(query.message.chat_id)
+    # Show quantity selector
+    markup = build_quantity_keyboard(product_id, available)
+    await query.message.edit_text(
+        f"🛒 *{product.emoji} {product.name}*\n"
+        f"💵 Price per unit: *${product.price}*\n"
+        f"📦 Available: *{available}*\n\n"
+        f"How many do you want to buy?",
+        parse_mode="Markdown",
+        reply_markup=markup
+    )
+
+
+# ── Quantity selected → create pending payment ────────────────────────────
+async def on_qty_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query   = update.callback_query
+    await query.answer()
+    user_id = str(query.from_user.id)
+
+    # qty_<product_id>_<quantity>
+    parts      = query.data.split("_")
+    product_id = int(parts[1])
+    quantity   = int(parts[2])
+
+    db_products = get_active_products()
+    product     = next((p for p in db_products if p.id == product_id), None)
+
+    if not product:
+        await query.message.reply_text(_t(context, "product_not_found", user_id=user_id))
+        return
+
+    available = count_available_keys(product_id)
+    if available < quantity:
+        await query.message.edit_text(
+            f"❌ Not enough stock! Only *{available}* available.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 Back", callback_data=f"buy_{product_id}")
+            ]])
+        )
+        return
+
+    total_price = round(product.price * quantity, 8)
+    chat_id     = str(query.message.chat_id)
+
     pp = create_pending_payment(
         telegram_id = user_id,
         product_id  = product_id,
-        price       = product.price,
+        price       = total_price,
         chat_id     = chat_id,
     )
+    # Store quantity in context for delivery
+    context.user_data[f"qty_{pp.id}"] = quantity
 
-    text = _build_payment_message(product, pp.note, pp.price)
+    text = _build_payment_message(product, pp.note, total_price, quantity)
 
     sent = await query.message.edit_text(
         text,
@@ -134,8 +199,8 @@ async def on_pay_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if pending_id:
         from services.pending_payments import mark_fulfilled
         mark_fulfilled(pending_id)
+        context.user_data.pop(f"qty_{pending_id}", None)
 
-    # Show main menu again so nothing is blocked
     from handlers.start import t
     try:
         await query.message.edit_text(
@@ -208,6 +273,8 @@ async def on_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait.edit_text("✅ Payment confirmed! Contact support for delivery.")
         return
 
+    quantity = context.user_data.pop(f"qty_{pp.id}", 1)
+
     order = create_order(
         telegram_id    = user_id,
         product_id     = pp.product_id,
@@ -216,16 +283,24 @@ async def on_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
         payment_method = "binance_pay",
         tx_id          = tx_ref,
     )
-    key = pop_key(pp.product_id)
 
-    if key:
-        deliver_key_for_order(order.id, key)
+    # Deliver multiple keys
+    keys_delivered = []
+    for _ in range(quantity):
+        key = pop_key(pp.product_id)
+        if key:
+            deliver_key_for_order(order.id, key)
+            keys_delivered.append(key)
+
+    if keys_delivered:
+        keys_text = "\n".join([f"`{k}`" for k in keys_delivered])
         text = (
             f"🎉 *Order Confirmed!*\n\n"
             f"📦 {product.emoji} *{product.name}*\n"
+            f"🔢 Quantity: *{len(keys_delivered)}*\n"
             f"💵 ${pp.price} USDT\n\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🔑 *Your Key:*\n`{key}`\n"
+            f"🔑 *Your Key(s):*\n{keys_text}\n"
             f"━━━━━━━━━━━━━━━━━━\n\n"
             f"Thank you! 🙏 Support: @sookbit"
         )
@@ -249,17 +324,17 @@ async def on_claim(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     admin_id = os.getenv("ADMIN_ID")
     if admin_id:
-        key_line = f"🔑 Key: `{key}`" if key else "⚠️ No key — deliver manually!"
+        keys_line = f"🔑 Keys:\n" + "\n".join([f"`{k}`" for k in keys_delivered]) if keys_delivered else "⚠️ No keys — deliver manually!"
         try:
             await update.get_bot().send_message(
                 chat_id    = admin_id,
                 text       = (
-                    f"{'✅' if key else '⚠️'} *Manual Claim Confirmed*\n\n"
+                    f"{'✅' if keys_delivered else '⚠️'} *Manual Claim Confirmed*\n\n"
                     f"👤 `{user_id}`\n"
-                    f"📦 {product.emoji} {product.name} — ${pp.price}\n"
+                    f"📦 {product.emoji} {product.name} x{quantity} — ${pp.price}\n"
                     f"🏷️ Note: `{pp.note}`\n"
                     f"🔖 TX: `{tx_ref}`\n"
-                    f"{key_line}"
+                    f"{keys_line}"
                 ),
                 parse_mode="Markdown",
             )
