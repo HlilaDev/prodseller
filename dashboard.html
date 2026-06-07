@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Bot Admin Dashboard</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+
+<!--
+  ╔══════════════════════════════════════════════════════════════╗
+  ║  TELEGRAM BOT ADMIN DASHBOARD — React + FastAPI             ║
+  ║  Pour connecter à ton vrai backend :                        ║
+  ║  1. Remplace MOCK_MODE = true par false                     ║
+  ║  2. Lance ton FastAPI avec admin/api.py inclus              ║
+  ║  3. Sers ce fichier depuis FastAPI ou un serveur local      ║
+  ╚══════════════════════════════════════════════════════════════╝
+-->
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0c10;--bg2:#111520;--bg3:#181d2a;--bg4:#1e2538;
+  --border:#ffffff12;--border2:#ffffff22;
+  --text:#e8eaf2;--muted:#6b7280;--accent:#4f8ef7;--accent2:#7c6ef7;
+  --green:#22c55e;--amber:#f59e0b;--red:#ef4444;--pink:#ec4899;
+  --radius:12px;--radius-sm:8px;
+  font-family:'Outfit',sans-serif;
+}
+body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+.shell{display:flex;min-height:100vh}
+.sidebar{width:220px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh}
+.logo{padding:24px 20px 20px;border-bottom:1px solid var(--border)}
+.logo-title{font-size:15px;font-weight:600;letter-spacing:.5px}
+.logo-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.nav{flex:1;padding:12px 10px;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-sm);cursor:pointer;font-size:13.5px;color:var(--muted);transition:all .15s;border:none;background:none;width:100%;text-align:left}
+.nav-item:hover{background:var(--bg3);color:var(--text)}
+.nav-item.active{background:#4f8ef715;color:var(--accent)}
+.nav-icon{font-size:16px;width:18px;text-align:center}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:600;padding:1px 6px;border-radius:20px;min-width:18px;text-align:center}
+.sidebar-footer{padding:14px 10px;border-top:1px solid var(--border)}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.main{flex:1;overflow-x:hidden;min-width:0}
+.topbar{padding:20px 28px 0;display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+.page-title{font-size:22px;font-weight:600}
+.page-sub{font-size:13px;color:var(--muted);margin-top:2px}
+.refresh-btn{background:var(--bg3);border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:var(--radius-sm);cursor:pointer;font-size:12px;font-family:'Outfit',sans-serif;transition:all .15s}
+.refresh-btn:hover{color:var(--text);border-color:var(--border2)}
+.content{padding:0 28px 28px}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.stat-card.blue::before{background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.stat-card.green::before{background:linear-gradient(90deg,var(--green),#16a34a)}
+.stat-card.amber::before{background:linear-gradient(90deg,var(--amber),#d97706)}
+.stat-card.red::before{background:linear-gradient(90deg,var(--red),#dc2626)}
+.stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px}
+.stat-value{font-size:28px;font-weight:600;letter-spacing:-.5px}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.stat-icon{position:absolute;right:16px;top:18px;font-size:22px;opacity:.25}
+.row2{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;margin-bottom:24px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.card-title{font-size:13px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:16px}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding:0 12px 10px;text-align:left;border-bottom:1px solid var(--border)}
+td{padding:11px 12px;font-size:13px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#ffffff04}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:500}
+.badge-green{background:#22c55e18;color:#4ade80}
+.badge-amber{background:#f59e0b18;color:#fbbf24}
+.badge-red{background:#ef444418;color:#f87171}
+.badge-blue{background:#4f8ef718;color:#93c5fd}
+.badge-gray{background:#6b728018;color:#9ca3af}
+.action-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-family:'Outfit',sans-serif;transition:all .15s;display:inline-flex;align-items:center;gap:4px}
+.action-btn:hover{border-color:var(--border2);color:var(--text)}
+.action-btn.approve:hover{border-color:#22c55e44;color:var(--green)}
+.action-btn.reject:hover{border-color:#ef444444;color:var(--red)}
+.action-btn.danger:hover{border-color:#ef444444;color:var(--red)}
+.action-btn.info:hover{border-color:#4f8ef744;color:var(--accent)}
+.mono{font-family:'DM Mono',monospace;font-size:11.5px;color:var(--muted)}
+.toggle-pill{position:relative;width:38px;height:21px;cursor:pointer}
+.toggle-pill input{opacity:0;width:0;height:0;position:absolute}
+.toggle-track{position:absolute;inset:0;border-radius:21px;background:var(--bg4);transition:.2s;border:1px solid var(--border)}
+.toggle-track.on{background:#22c55e30;border-color:#22c55e50}
+.toggle-thumb{position:absolute;top:3px;left:3px;width:13px;height:13px;border-radius:50%;background:var(--muted);transition:.2s}
+.toggle-thumb.on{left:20px;background:var(--green)}
+.input-row{display:flex;gap:8px;margin-bottom:14px}
+.inp{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:var(--radius-sm);font-size:13px;font-family:'Outfit',sans-serif;outline:none;transition:border .15s}
+.inp:focus{border-color:var(--accent)}
+.inp::placeholder{color:var(--muted)}
+.btn{padding:8px 16px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;cursor:pointer;font-family:'Outfit',sans-serif;border:none;transition:all .15s}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#3d7ef0}
+.btn-sm{padding:5px 12px;font-size:12px}
+.textarea{width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:var(--radius-sm);font-size:12.5px;font-family:'DM Mono',monospace;resize:vertical;outline:none;min-height:100px}
+.textarea:focus{border-color:var(--accent)}
+.modal-overlay{position:fixed;inset:0;background:#00000088;display:flex;align-items:center;justify-content:center;z-index:999}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:24px;width:460px;max-width:90vw}
+.modal-title{font-size:16px;font-weight:600;margin-bottom:16px}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.btn-ghost{background:var(--bg3);color:var(--muted);border:1px solid var(--border)}
+.btn-ghost:hover{color:var(--text)}
+.empty{text-align:center;padding:40px;color:var(--muted);font-size:13px}
+.search-wrap{margin-bottom:14px}
+.filter-row{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.filter-btn{background:var(--bg3);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:20px;font-size:12px;cursor:pointer;font-family:'Outfit',sans-serif;transition:all .15s}
+.filter-btn.active{background:#4f8ef720;color:var(--accent);border-color:#4f8ef740}
+.chart-wrap{height:160px}
+.product-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.emoji-big{font-size:20px}
+.key-chip{display:inline-block;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-size:11px;font-family:'DM Mono',monospace;color:var(--muted)}
+.sidebar-version{font-size:10px;color:#ffffff18;padding:0 20px 14px;font-family:'DM Mono',monospace}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ══════════════════════════════════════════════════
+//  CONFIG — mettre MOCK_MODE=false en production
+// ══════════════════════════════════════════════════
+const MOCK_MODE = true;   // <── false = vraies API calls
+const API_BASE  = '';     // '' = même domaine que FastAPI
+
+const {useState,useEffect,useCallback}=React;
+const {AreaChart,Area,XAxis,YAxis,Tooltip,ResponsiveContainer,CartesianGrid}=Recharts;
+
+// ─── Mock data ──────────────────────────────────────────────────────────────
+const MOCK={
+  stats:{total_orders:148,pending_orders:7,approved_orders:129,total_revenue:3847.5,total_products:12,active_products:9,total_clients:94,
+    revenue_chart:[{day:'Mon',revenue:210},{day:'Tue',revenue:480},{day:'Wed',revenue:320},{day:'Thu',revenue:650},{day:'Fri',revenue:890},{day:'Sat',revenue:540},{day:'Sun',revenue:757.5}]},
+  products:[
+    {id:1,name:'Netflix Premium',emoji:'🎬',price:12.99,stock:45,active:true,keys_available:45},
+    {id:2,name:'Spotify Premium',emoji:'🎵',price:9.99,stock:30,active:true,keys_available:30},
+    {id:3,name:'ChatGPT Plus',emoji:'🤖',price:19.99,stock:0,active:true,keys_available:0},
+    {id:4,name:'Adobe CC',emoji:'🎨',price:54.99,stock:12,active:false,keys_available:12},
+    {id:5,name:'YouTube Premium',emoji:'📺',price:13.99,stock:8,active:true,keys_available:8},
+  ],
+  orders:[
+    {id:101,telegram_id:'@alex_tn',product_name:'Netflix Premium',price:12.99,status:'pending',payment_method:'Binance Pay',tx_id:null,created_at:'2026-06-07T10:22:00'},
+    {id:100,telegram_id:'@sara_dz',product_name:'Spotify Premium',price:9.99,status:'approved',payment_method:'USDT TRC20',tx_id:'TXabc123',delivered_key:'SPOT-XXXX-YYYY',created_at:'2026-06-07T09:11:00'},
+    {id:99,telegram_id:'@med_ma',product_name:'ChatGPT Plus',price:19.99,status:'pending',payment_method:'Binance Pay',tx_id:null,created_at:'2026-06-06T22:45:00'},
+    {id:98,telegram_id:'@karim11',product_name:'Adobe CC',price:54.99,status:'rejected',payment_method:'USDT BEP20',tx_id:'TX999',created_at:'2026-06-06T18:30:00'},
+    {id:97,telegram_id:'@leila_t',product_name:'Netflix Premium',price:12.99,status:'approved',payment_method:'Binance Pay',tx_id:'BPay_77',delivered_key:'NFLX-1234-ABCD',created_at:'2026-06-06T15:00:00'},
+  ],
+  clients:[
+    {id:1,telegram_id:'111222333',username:'alex_tn',first_name:'Alex',lang:'en',created_at:'2026-05-01T00:00:00'},
+    {id:2,telegram_id:'444555666',username:'sara_dz',first_name:'Sara',lang:'fr',created_at:'2026-05-10T00:00:00'},
+    {id:3,telegram_id:'777888999',username:'med_ma',first_name:'Mohamed',lang:'ar',created_at:'2026-05-22T00:00:00'},
+  ]
+};
+
+// ─── API helper ──────────────────────────────────────────────────────────────
+async function api(path, opts={}){
+  if(MOCK_MODE){
+    // Simulate API with mock data
+    const key=path.replace('/api/','').split('/')[0];
+    if(key==='stats')return MOCK.stats;
+    if(key==='products')return MOCK.products;
+    if(key==='orders')return MOCK.orders;
+    if(key==='clients')return MOCK.clients;
+    return {};
+  }
+  const r=await fetch(API_BASE+path,{...opts,headers:{'Content-Type':'application/json',...opts.headers}});
+  if(!r.ok)throw new Error(await r.text());
+  return r.json();
+}
+
+// ─── Utils ───────────────────────────────────────────────────────────────────
+function fmtDate(s){if(!s)return'—';const d=new Date(s);return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(',',' ')}
+
+function StatusBadge({s}){
+  const map={pending:['badge-amber','⏳ Pending'],approved:['badge-green','✅ Approved'],rejected:['badge-red','❌ Rejected']};
+  const [cls,label]=map[s]||['badge-gray',s];
+  return React.createElement('span',{className:`badge ${cls}`},label);
+}
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
+function Sidebar({active,setActive,pendingCount}){
+  const items=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'orders',icon:'🧾',label:'Orders',badge:pendingCount},{id:'products',icon:'📦',label:'Products'},{id:'clients',icon:'👥',label:'Clients'}];
+  return React.createElement('div',{className:'sidebar'},
+    React.createElement('div',{className:'logo'},React.createElement('div',{className:'logo-title'},'🤖 BotAdmin'),React.createElement('div',{className:'logo-sub'},'Telegram Shop Panel')),
+    React.createElement('div',{className:'nav'},items.map(item=>React.createElement('button',{key:item.id,className:`nav-item${active===item.id?' active':''}`,onClick:()=>setActive(item.id)},React.createElement('span',{className:'nav-icon'},item.icon),item.label,item.badge?React.createElement('span',{className:'nav-badge'},item.badge):null))),
+    React.createElement('div',{className:'sidebar-footer'},React.createElement('span',{className:'status-dot'}),React.createElement('span',{style:{fontSize:'12px',color:'var(--muted)'}},'Bot online')),
+    React.createElement('div',{className:'sidebar-version'},'v2.0 · FastAPI + React'));
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+function Dashboard({data}){
+  const s=data.stats||MOCK.stats;
+  const cards=[{label:'Total Revenue',value:`$${s.total_revenue.toFixed(2)}`,sub:'USDT approved',color:'blue',icon:'💰'},{label:'Orders',value:s.total_orders,sub:`${s.pending_orders} pending`,color:'amber',icon:'🧾'},{label:'Clients',value:s.total_clients,sub:'total users',color:'green',icon:'👥'},{label:'Products',value:s.total_products,sub:`${s.active_products} active`,color:'red',icon:'📦'}];
+  return React.createElement('div',null,
+    React.createElement('div',{className:'topbar'},React.createElement('div',null,React.createElement('div',{className:'page-title'},'Dashboard'),React.createElement('div',{className:'page-sub'},new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}))),React.createElement('button',{className:'refresh-btn'},'↻ Refresh')),
+    React.createElement('div',{className:'content'},
+      React.createElement('div',{className:'stats-grid'},cards.map(c=>React.createElement('div',{key:c.label,className:`stat-card ${c.color}`},React.createElement('div',{className:'stat-label'},c.label),React.createElement('div',{className:'stat-value'},c.value),React.createElement('div',{className:'stat-sub'},c.sub),React.createElement('div',{className:'stat-icon'},c.icon)))),
+      React.createElement('div',{className:'row2'},
+        React.createElement('div',{className:'card'},React.createElement('div',{className:'card-title'},'Revenue — 7 days'),React.createElement('div',{className:'chart-wrap'},React.createElement(ResponsiveContainer,{width:'100%',height:'100%'},React.createElement(AreaChart,{data:s.revenue_chart,margin:{top:5,right:5,left:-20,bottom:0}},React.createElement(CartesianGrid,{strokeDasharray:'3 3',vertical:false,stroke:'#ffffff08'}),React.createElement(XAxis,{dataKey:'day',axisLine:false,tickLine:false}),React.createElement(YAxis,{axisLine:false,tickLine:false,tickFormatter:v=>`$${v}`}),React.createElement(Tooltip,{contentStyle:{background:'#111520',border:'1px solid #ffffff22',borderRadius:8,fontSize:12},labelStyle:{color:'#6b7280'}}),React.createElement('defs',null,React.createElement('linearGradient',{id:'grad',x1:'0',y1:'0',x2:'0',y2:'1'},React.createElement('stop',{offset:'5%',stopColor:'#4f8ef7',stopOpacity:.3}),React.createElement('stop',{offset:'95%',stopColor:'#4f8ef7',stopOpacity:0}))),React.createElement(Area,{type:'monotone',dataKey:'revenue',stroke:'#4f8ef7',strokeWidth:2,fill:'url(#grad)'}))))),
+        React.createElement('div',{className:'card'},React.createElement('div',{className:'card-title'},'Recent Orders'),(data.orders||MOCK.orders).slice(0,4).map(o=>React.createElement('div',{key:o.id,style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,paddingBottom:10,borderBottom:'1px solid var(--border)'}},React.createElement('div',null,React.createElement('div',{style:{fontSize:13,fontWeight:500}},`#${o.id} ${o.product_name}`),React.createElement('div',{className:'mono',style:{marginTop:2}},o.telegram_id)),React.createElement('div',{style:{textAlign:'right'}},React.createElement('div',{style:{fontSize:13,fontWeight:500,color:'var(--accent)'}},`$${o.price}`),React.createElement(StatusBadge,{s:o.status}))))))));
+}
+
+// ─── Orders ───────────────────────────────────────────────────────────────────
+function Orders({data,setData}){
+  const [filter,setFilter]=useState('all');
+  const [search,setSearch]=useState('');
+  const orders=(data.orders||[]).filter(o=>{if(filter!=='all'&&o.status!==filter)return false;if(search&&!o.telegram_id?.toLowerCase().includes(search.toLowerCase())&&!o.product_name?.toLowerCase().includes(search.toLowerCase()))return false;return true;});
+  async function act(id,action){
+    if(MOCK_MODE){setData(d=>({...d,orders:d.orders.map(o=>o.id===id?{...o,status:action==='approve'?'approved':'rejected'}:o)}));return;}
+    await api(`/api/orders/${id}`,{method:'PATCH',body:JSON.stringify({action})});
+    setData(d=>({...d,orders:d.orders.map(o=>o.id===id?{...o,status:action==='approve'?'approved':'rejected'}:o)}));
+  }
+  const filters=['all','pending','approved','rejected'];
+  const pending=(data.orders||[]).filter(o=>o.status==='pending').length;
+  return React.createElement('div',null,
+    React.createElement('div',{className:'topbar'},React.createElement('div',null,React.createElement('div',{className:'page-title'},'Orders'),React.createElement('div',{className:'page-sub'},`${(data.orders||[]).length} total · ${pending} pending`)),React.createElement('button',{className:'refresh-btn'},'↻ Refresh')),
+    React.createElement('div',{className:'content'},React.createElement('div',{className:'card'},
+      React.createElement('div',{className:'filter-row'},filters.map(f=>React.createElement('button',{key:f,className:`filter-btn${filter===f?' active':''}`,onClick:()=>setFilter(f)},f.charAt(0).toUpperCase()+f.slice(1)))),
+      React.createElement('div',{className:'search-wrap'},React.createElement('input',{className:'inp',placeholder:'🔍  Search user or product…',value:search,onChange:e=>setSearch(e.target.value),style:{width:'100%'}})),
+      React.createElement('div',{className:'table-wrap'},React.createElement('table',null,
+        React.createElement('thead',null,React.createElement('tr',null,['#','User','Product','Price','Method','Key','Status','Date','Actions'].map(h=>React.createElement('th',{key:h},h)))),
+        React.createElement('tbody',null,orders.length===0?React.createElement('tr',null,React.createElement('td',{colSpan:9},React.createElement('div',{className:'empty'},'No orders found'))):
+        orders.map(o=>React.createElement('tr',{key:o.id},
+          React.createElement('td',null,React.createElement('span',{className:'mono'},`#${o.id}`)),
+          React.createElement('td',null,React.createElement('span',{className:'mono'},o.telegram_id)),
+          React.createElement('td',null,o.product_name),
+          React.createElement('td',null,React.createElement('span',{style:{color:'var(--accent)',fontWeight:500}},`$${o.price}`)),
+          React.createElement('td',null,React.createElement('span',{className:'mono'},o.payment_method||'—')),
+          React.createElement('td',null,o.delivered_key?React.createElement('span',{className:'key-chip'},o.delivered_key):'—'),
+          React.createElement('td',null,React.createElement(StatusBadge,{s:o.status})),
+          React.createElement('td',null,React.createElement('span',{className:'mono'},fmtDate(o.created_at))),
+          React.createElement('td',null,o.status==='pending'?React.createElement('div',{style:{display:'flex',gap:4}},React.createElement('button',{className:'action-btn approve',onClick:()=>act(o.id,'approve')},'✅'),React.createElement('button',{className:'action-btn reject',onClick:()=>act(o.id,'reject')},'❌')):React.createElement('span',{className:'mono'},'—')))))))));
+}
+
+// ─── Products ─────────────────────────────────────────────────────────────────
+function Products({data,setData}){
+  const [showAdd,setShowAdd]=useState(false);
+  const [selectedId,setSelectedId]=useState(null);
+  const [form,setForm]=useState({name:'',price:'',emoji:'📦',stock:0});
+  const [keysText,setKeysText]=useState('');
+  const selected=(data.products||[]).find(p=>p.id===selectedId);
+  async function addProduct(){if(!form.name||!form.price)return;const np={id:Date.now(),name:form.name,price:parseFloat(form.price),emoji:form.emoji,stock:parseInt(form.stock)||0,active:true,keys_available:0};if(!MOCK_MODE){const res=await api('/api/products',{method:'POST',body:JSON.stringify({name:form.name,price:parseFloat(form.price),emoji:form.emoji,stock:parseInt(form.stock)||0})});np.id=res.id;}setData(d=>({...d,products:[np,...d.products]}));setForm({name:'',price:'',emoji:'📦',stock:0});setShowAdd(false);}
+  async function toggleProduct(id){if(!MOCK_MODE)await api(`/api/products/${id}/toggle`,{method:'PATCH'});setData(d=>({...d,products:d.products.map(p=>p.id===id?{...p,active:!p.active}:p)}));}
+  async function deleteProduct(id){if(!MOCK_MODE)await api(`/api/products/${id}`,{method:'DELETE'});setData(d=>({...d,products:d.products.filter(p=>p.id!==id)}));}
+  async function addKeys(){const keys=keysText.split('\n').map(k=>k.trim()).filter(Boolean);if(!MOCK_MODE)await api(`/api/products/${selectedId}/keys`,{method:'POST',body:JSON.stringify({keys})});setData(d=>({...d,products:d.products.map(p=>p.id===selectedId?{...p,keys_available:p.keys_available+keys.length,stock:p.stock+keys.length}:p)}));setKeysText('');setSelectedId(null);}
+  return React.createElement('div',null,
+    React.createElement('div',{className:'topbar'},React.createElement('div',null,React.createElement('div',{className:'page-title'},'Products'),React.createElement('div',{className:'page-sub'},`${(data.products||[]).length} products`)),React.createElement('button',{className:'btn btn-primary btn-sm',onClick:()=>setShowAdd(true)},'+ Add Product')),
+    React.createElement('div',{className:'content'},React.createElement('div',{className:'card'},
+      React.createElement('div',{className:'table-wrap'},React.createElement('table',null,
+        React.createElement('thead',null,React.createElement('tr',null,['ID','Product','Price','Keys','Status','Actions'].map(h=>React.createElement('th',{key:h},h)))),
+        React.createElement('tbody',null,(data.products||[]).map(p=>React.createElement('tr',{key:p.id},
+          React.createElement('td',null,React.createElement('span',{className:'mono'},`#${p.id}`)),
+          React.createElement('td',null,p.emoji,' ',p.name),
+          React.createElement('td',null,React.createElement('span',{style:{color:'var(--accent)',fontWeight:500}},`$${p.price}`)),
+          React.createElement('td',null,p.keys_available===0?React.createElement('span',{className:'badge badge-red'},'Out of stock'):React.createElement('span',{className:'badge badge-green'},`${p.keys_available} keys`)),
+          React.createElement('td',null,React.createElement('label',{className:'toggle-pill'},React.createElement('input',{type:'checkbox',checked:p.active,onChange:()=>toggleProduct(p.id)}),React.createElement('div',{className:`toggle-track${p.active?' on':''}`}),React.createElement('div',{className:`toggle-thumb${p.active?' on':''}`}))),
+          React.createElement('td',null,React.createElement('div',{style:{display:'flex',gap:4}},React.createElement('button',{className:'action-btn info',onClick:()=>setSelectedId(p.id)},'🔑 Keys'),React.createElement('button',{className:'action-btn danger',onClick:()=>deleteProduct(p.id)},'🗑️')))))))),
+    showAdd&&React.createElement('div',{className:'modal-overlay',onClick:()=>setShowAdd(false)},React.createElement('div',{className:'modal',onClick:e=>e.stopPropagation()},React.createElement('div',{className:'modal-title'},'Add Product'),React.createElement('div',{className:'input-row'},React.createElement('input',{className:'inp',placeholder:'Name',value:form.name,onChange:e=>setForm({...form,name:e.target.value}),style:{flex:1}}),React.createElement('input',{className:'inp',placeholder:'Emoji',value:form.emoji,onChange:e=>setForm({...form,emoji:e.target.value}),style:{width:60}})),React.createElement('div',{className:'input-row'},React.createElement('input',{className:'inp',type:'number',placeholder:'Price USDT',value:form.price,onChange:e=>setForm({...form,price:e.target.value}),style:{flex:1}}),React.createElement('input',{className:'inp',type:'number',placeholder:'Stock',value:form.stock,onChange:e=>setForm({...form,stock:e.target.value}),style:{width:80}})),React.createElement('div',{className:'modal-footer'},React.createElement('button',{className:'btn btn-ghost',onClick:()=>setShowAdd(false)},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:addProduct},'Add')))),
+    selectedId&&React.createElement('div',{className:'modal-overlay',onClick:()=>setSelectedId(null)},React.createElement('div',{className:'modal',onClick:e=>e.stopPropagation()},React.createElement('div',{className:'product-header'},React.createElement('span',{className:'emoji-big'},selected?.emoji),React.createElement('div',{className:'modal-title'},`Keys — ${selected?.name}`)),React.createElement('div',{style:{fontSize:12,color:'var(--muted)',marginBottom:10}},`${selected?.keys_available} available`),React.createElement('textarea',{className:'textarea',placeholder:'Paste keys here, one per line…\nKEY-AAAA-BBBB\nKEY-CCCC-DDDD',value:keysText,onChange:e=>setKeysText(e.target.value)}),React.createElement('div',{className:'modal-footer'},React.createElement('button',{className:'btn btn-ghost',onClick:()=>setSelectedId(null)},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:addKeys},'Add Keys'))))));
+}
+
+// ─── Clients ─────────────────────────────────────────────────────────────────
+function Clients({data}){
+  const [search,setSearch]=useState('');
+  const clients=(data.clients||[]).filter(c=>!search||c.username?.toLowerCase().includes(search.toLowerCase())||c.first_name?.toLowerCase().includes(search.toLowerCase()));
+  return React.createElement('div',null,
+    React.createElement('div',{className:'topbar'},React.createElement('div',null,React.createElement('div',{className:'page-title'},'Clients'),React.createElement('div',{className:'page-sub'},`${(data.clients||[]).length} users`)),React.createElement('button',{className:'refresh-btn'},'↻ Refresh')),
+    React.createElement('div',{className:'content'},React.createElement('div',{className:'card'},
+      React.createElement('div',{className:'search-wrap'},React.createElement('input',{className:'inp',placeholder:'🔍  Search username or name…',value:search,onChange:e=>setSearch(e.target.value),style:{width:'100%'}})),
+      React.createElement('div',{className:'table-wrap'},React.createElement('table',null,
+        React.createElement('thead',null,React.createElement('tr',null,['#','Telegram ID','Username','Name','Lang','Joined'].map(h=>React.createElement('th',{key:h},h)))),
+        React.createElement('tbody',null,clients.map(c=>React.createElement('tr',{key:c.id},React.createElement('td',null,React.createElement('span',{className:'mono'},`#${c.id}`)),React.createElement('td',null,React.createElement('span',{className:'mono'},c.telegram_id)),React.createElement('td',null,React.createElement('span',{className:'mono'},c.username?`@${c.username}`:'—')),React.createElement('td',null,c.first_name||'—'),React.createElement('td',null,React.createElement('span',{className:'badge badge-blue'},c.lang||'?')),React.createElement('td',null,React.createElement('span',{className:'mono'},fmtDate(c.created_at)))))))))));
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+function App(){
+  const [page,setPage]=useState('dashboard');
+  const [data,setData]=useState({stats:MOCK.stats,products:MOCK.products,orders:MOCK.orders,clients:MOCK.clients});
+  const pending=(data.orders||[]).filter(o=>o.status==='pending').length;
+
+  useEffect(()=>{
+    if(MOCK_MODE)return;
+    Promise.all([api('/api/stats'),api('/api/orders'),api('/api/products'),api('/api/clients')])
+      .then(([stats,orders,products,clients])=>setData({stats,orders,products,clients}))
+      .catch(console.error);
+  },[]);
+
+  const pages={
+    dashboard:React.createElement(Dashboard,{data}),
+    orders:React.createElement(Orders,{data,setData}),
+    products:React.createElement(Products,{data,setData}),
+    clients:React.createElement(Clients,{data})
+  };
+  return React.createElement('div',{className:'shell'},
+    React.createElement(Sidebar,{active:page,setActive:setPage,pendingCount:pending||null}),
+    React.createElement('div',{className:'main'},pages[page]));
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>

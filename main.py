@@ -5,6 +5,7 @@ print("🔄 [1] Starting imports...")
 
 try:
     from fastapi import FastAPI, Request
+    from fastapi.responses import FileResponse
     from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
     from telegram.ext import (
         Application, CommandHandler, CallbackQueryHandler,
@@ -35,6 +36,7 @@ try:
     from handlers.orders import my_orders
     from handlers.admin import admin_orders, approve_order, reject_order
     from admin.routes import router as admin_router
+    from admin.api import api_router
     print("✅ [4] All handlers OK")
 except Exception as e:
     print(f"❌ [4] Handler import FAILED: {e}")
@@ -48,6 +50,11 @@ print(f"🔄 TOKEN={'YES' if TOKEN else 'NO'} | RENDER_URL={RENDER_URL or 'NOT S
 
 app = FastAPI()
 app.include_router(admin_router)
+app.include_router(api_router)
+
+@app.get("/admin/react")
+async def react_dashboard():
+    return FileResponse("dashboard.html")
 
 telegram_app = Application.builder().token(TOKEN).build()
 
@@ -62,7 +69,7 @@ telegram_app.add_handler(CallbackQueryHandler(on_qty_selected, pattern=r"^qty_\d
 # 3. Cancel deposit (pay_cancel_<id>)
 telegram_app.add_handler(CallbackQueryHandler(on_pay_cancel, pattern=r"^pay_cancel_"))
 
-# 3. Commands
+# 4. Commands
 telegram_app.add_handler(CommandHandler("start",       start))
 telegram_app.add_handler(CommandHandler("buy",         products))
 telegram_app.add_handler(CommandHandler("orders",      my_orders))
@@ -71,15 +78,15 @@ telegram_app.add_handler(CommandHandler("adminorders", admin_orders))
 telegram_app.add_handler(CommandHandler("approve",     approve_order))
 telegram_app.add_handler(CommandHandler("reject",      reject_order))
 
-# 4. Language callbacks
+# 5. Language callbacks
 telegram_app.add_handler(CallbackQueryHandler(
     language_callback, pattern=r"^(menu_language|setlang_.+)$"
 ))
 
-# 5. General menu callbacks (back_main, menu_products, menu_orders, support…)
+# 6. General menu callbacks
 telegram_app.add_handler(CallbackQueryHandler(product_buttons))
 
-# 6. Reply keyboard buttons with 2-second cooldown
+# 7. Reply keyboard buttons with 2-second cooldown
 import time
 _last_reply: dict = {}
 
@@ -97,7 +104,7 @@ async def handle_reply_buttons(update: Update, context):
         return
     _last_reply[user_id] = now
     from handlers.start import t
-    if "shop"    in text_lower:
+    if "shop" in text_lower:
         await products(update, context)
     elif "order" in text_lower:
         await my_orders(update, context)
@@ -213,4 +220,4 @@ async def webhook_get():
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def home():
-    return {"status": "running", "admin": "/admin"}
+    return {"status": "running", "admin": "/admin", "dashboard": "/admin/react"}
