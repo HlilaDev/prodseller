@@ -124,7 +124,7 @@ tr:hover td{background:#ffffff04}
 // ══════════════════════════════════════════════════
 //  CONFIG — mettre MOCK_MODE=false en production
 // ══════════════════════════════════════════════════
-const MOCK_MODE = true;   // <── false = vraies API calls
+const MOCK_MODE = false;   // <── false = vraies API calls
 const API_BASE  = '';     // '' = même domaine que FastAPI
 
 const {useState,useEffect,useCallback}=React;
@@ -189,31 +189,26 @@ function Sidebar({active,setActive,pendingCount}){
     React.createElement('div',{className:'sidebar-version'},'v2.0 · FastAPI + React'));
 }
 
-// --- SvgChart (pure SVG, no dependencies) ---
 function SvgChart({data}){
   const W=400,H=160,P=24;
   const vals=data.map(d=>d.revenue);
-  const max=Math.max(...vals,1);
+  const max=Math.max.apply(null,vals.concat([1]));
   const stepX=(W-P*2)/(data.length-1);
-  const pts=data.map((d,i)=>{
-    const x=P+i*stepX;
-    const y=H-P-((d.revenue/max)*(H-P*2));
-    return [x,y];
-  });
-  const line=pts.map((p,i)=>(i===0?'M':'L')+p[0]+' '+p[1]).join(' ');
+  const pts=data.map(function(d,i){var x=P+i*stepX;var y=H-P-((d.revenue/max)*(H-P*2));return [x,y];});
+  const line=pts.map(function(p,i){return (i===0?'M':'L')+p[0]+' '+p[1];}).join(' ');
   const area=line+' L'+pts[pts.length-1][0]+' '+(H-P)+' L'+pts[0][0]+' '+(H-P)+' Z';
-  return React.createElement('svg',{viewBox:`0 0 ${W} ${H}`,style:{width:'100%',height:'100%'}},
+  return React.createElement('svg',{viewBox:'0 0 '+W+' '+H,style:{width:'100%',height:'100%'}},
     React.createElement('defs',null,React.createElement('linearGradient',{id:'g',x1:'0',y1:'0',x2:'0',y2:'1'},
       React.createElement('stop',{offset:'0%',stopColor:'#4f8ef7',stopOpacity:0.3}),
       React.createElement('stop',{offset:'100%',stopColor:'#4f8ef7',stopOpacity:0}))),
     React.createElement('path',{d:area,fill:'url(#g)'}),
     React.createElement('path',{d:line,fill:'none',stroke:'#4f8ef7',strokeWidth:2}),
-    pts.map((p,i)=>React.createElement('circle',{key:i,cx:p[0],cy:p[1],r:3,fill:'#4f8ef7'})),
-    data.map((d,i)=>React.createElement('text',{key:'t'+i,x:pts[i][0],y:H-6,fill:'#6b7280',fontSize:10,textAnchor:'middle'},d.day))
+    pts.map(function(p,i){return React.createElement('circle',{key:i,cx:p[0],cy:p[1],r:3,fill:'#4f8ef7'});}),
+    data.map(function(d,i){return React.createElement('text',{key:'t'+i,x:pts[i][0],y:H-6,fill:'#6b7280',fontSize:10,textAnchor:'middle'},d.day);})
   );
 }
 
-// --- Dashboard ────────────────────────────────────────────────────────────────
+// ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard({data}){
   const s=data.stats||MOCK.stats;
   const cards=[{label:'Total Revenue',value:`$${s.total_revenue.toFixed(2)}`,sub:'USDT approved',color:'blue',icon:'💰'},{label:'Orders',value:s.total_orders,sub:`${s.pending_orders} pending`,color:'amber',icon:'🧾'},{label:'Clients',value:s.total_clients,sub:'total users',color:'green',icon:'👥'},{label:'Products',value:s.total_products,sub:`${s.active_products} active`,color:'red',icon:'📦'}];
@@ -255,7 +250,7 @@ function Orders({data,setData}){
           React.createElement('td',null,o.delivered_key?React.createElement('span',{className:'key-chip'},o.delivered_key):'—'),
           React.createElement('td',null,React.createElement(StatusBadge,{s:o.status})),
           React.createElement('td',null,React.createElement('span',{className:'mono'},fmtDate(o.created_at))),
-          React.createElement('td',null,o.status==='pending'?React.createElement('div',{style:{display:'flex',gap:4}},React.createElement('button',{className:'action-btn approve',onClick:()=>act(o.id,'approve')},'✅'),React.createElement('button',{className:'action-btn reject',onClick:()=>act(o.id,'reject')},'❌')):React.createElement('span',{className:'mono'},'—')))))))));
+          React.createElement('td',null,o.status==='pending'?React.createElement('div',{style:{display:'flex',gap:4}},React.createElement('button',{className:'action-btn approve',onClick:()=>act(o.id,'approve')},'✅'),React.createElement('button',{className:'action-btn reject',onClick:()=>act(o.id,'reject')},'❌')):React.createElement('span',{className:'mono'},'—'))))))))));
 }
 
 // ─── Products ─────────────────────────────────────────────────────────────────
@@ -282,7 +277,7 @@ function Products({data,setData}){
           React.createElement('td',null,React.createElement('label',{className:'toggle-pill'},React.createElement('input',{type:'checkbox',checked:p.active,onChange:()=>toggleProduct(p.id)}),React.createElement('div',{className:`toggle-track${p.active?' on':''}`}),React.createElement('div',{className:`toggle-thumb${p.active?' on':''}`}))),
           React.createElement('td',null,React.createElement('div',{style:{display:'flex',gap:4}},React.createElement('button',{className:'action-btn info',onClick:()=>setSelectedId(p.id)},'🔑 Keys'),React.createElement('button',{className:'action-btn danger',onClick:()=>deleteProduct(p.id)},'🗑️')))))))),
     showAdd&&React.createElement('div',{className:'modal-overlay',onClick:()=>setShowAdd(false)},React.createElement('div',{className:'modal',onClick:e=>e.stopPropagation()},React.createElement('div',{className:'modal-title'},'Add Product'),React.createElement('div',{className:'input-row'},React.createElement('input',{className:'inp',placeholder:'Name',value:form.name,onChange:e=>setForm({...form,name:e.target.value}),style:{flex:1}}),React.createElement('input',{className:'inp',placeholder:'Emoji',value:form.emoji,onChange:e=>setForm({...form,emoji:e.target.value}),style:{width:60}})),React.createElement('div',{className:'input-row'},React.createElement('input',{className:'inp',type:'number',placeholder:'Price USDT',value:form.price,onChange:e=>setForm({...form,price:e.target.value}),style:{flex:1}}),React.createElement('input',{className:'inp',type:'number',placeholder:'Stock',value:form.stock,onChange:e=>setForm({...form,stock:e.target.value}),style:{width:80}})),React.createElement('div',{className:'modal-footer'},React.createElement('button',{className:'btn btn-ghost',onClick:()=>setShowAdd(false)},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:addProduct},'Add')))),
-    selectedId&&React.createElement('div',{className:'modal-overlay',onClick:()=>setSelectedId(null)},React.createElement('div',{className:'modal',onClick:e=>e.stopPropagation()},React.createElement('div',{className:'product-header'},React.createElement('span',{className:'emoji-big'},selected?.emoji),React.createElement('div',{className:'modal-title'},`Keys — ${selected?.name}`)),React.createElement('div',{style:{fontSize:12,color:'var(--muted)',marginBottom:10}},`${selected?.keys_available} available`),React.createElement('textarea',{className:'textarea',placeholder:'Paste keys here, one per line…\nKEY-AAAA-BBBB\nKEY-CCCC-DDDD',value:keysText,onChange:e=>setKeysText(e.target.value)}),React.createElement('div',{className:'modal-footer'},React.createElement('button',{className:'btn btn-ghost',onClick:()=>setSelectedId(null)},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:addKeys},'Add Keys'))))));
+    selectedId&&React.createElement('div',{className:'modal-overlay',onClick:()=>setSelectedId(null)},React.createElement('div',{className:'modal',onClick:e=>e.stopPropagation()},React.createElement('div',{className:'product-header'},React.createElement('span',{className:'emoji-big'},selected?.emoji),React.createElement('div',{className:'modal-title'},`Keys — ${selected?.name}`)),React.createElement('div',{style:{fontSize:12,color:'var(--muted)',marginBottom:10}},`${selected?.keys_available} available`),React.createElement('textarea',{className:'textarea',placeholder:'Paste keys here, one per line…\nKEY-AAAA-BBBB\nKEY-CCCC-DDDD',value:keysText,onChange:e=>setKeysText(e.target.value)}),React.createElement('div',{className:'modal-footer'},React.createElement('button',{className:'btn btn-ghost',onClick:()=>setSelectedId(null)},'Cancel'),React.createElement('button',{className:'btn btn-primary',onClick:addKeys},'Add Keys')))))));
 }
 
 // ─── Clients ─────────────────────────────────────────────────────────────────
